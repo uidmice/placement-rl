@@ -66,6 +66,7 @@ class Program:
     def __init__(self, edge_list, network):
         self.P = nx.DiGraph()
         self.P.add_edges_from(edge_list)
+        print(list(self.P.nodes))
         self.n_operators = self.P.number_of_nodes()
 #         self.P.add_edges_from([(i, i+1) for i in range(n_operators-1)])
 
