@@ -1,66 +1,52 @@
+from env.utils import *
 
+class PlacementEnv:
+    def __init__(self, network, program, seed=0):
 
-import gym
-from gym import spaces
-from gym.utils import seeding
+        self.network = network
+        self.program = program
 
+        self.graph = self.program.P
 
-from env.model import StarNetwork, Program
-from utils import *
+        self.n_operators = self.program.n_operators
+        self.n_devices = self.network.n_devices
 
-N_OP = 7
-N_DEV = 50
-class PlacementEnv(gym.Env):
-
-    def __init__(self):
-
-        self.network = StarNetwork(N_DEV, 5)
-        self.program = Program(N_OP, self.network)
-
-        self.n_operators = N_OP
-        self.n_devices = N_DEV
-
-        self.action_space = spaces.Discrete(self.n_devices)
-        self.observation_space = spaces.Dict({
-            'op': spaces.Tuple((
-                spaces.Discrete(self.n_operators),
-                spaces.Discrete(self.n_operators),
-                spaces.Discrete(self.n_operators)
-            )),
-            'device': spaces.Tuple((
-                spaces.Discrete(self.n_devices),
-                spaces.Discrete(self.n_devices),
-                spaces.Discrete(self.n_devices)
-            ))
-        })
-
-        self.seed()
-        self.init_mapping = self.program.random_mapping()
-
+        self.seed = seed
         self.mapping = None
-        self.state = None
-        self.path = None
-        self.idx = None
+        self.cpath = None
+        self.op_idx = None
 
-        self.max_steps = self.n_operators * 50
-        self.count = 0
+        self.done = False
+        self.max_steps = 15 * self.n_operators
+        self.step_count = 0
+
+        self.op_neighbors = []
+        self.op_edges = []
+
+        for n in range(self.n_operators):
+            self.op_neighbors.append(list(self.graph.predecessors(n)) + list(self.graph.successors(n)))
+            self.op_edges.append(list(self.graph.in_edges(n)) + list(self.graph.out_edges(n)))
 
 
-    def seed(self, seed=None):
-        self.np_random, seed = seeding.np_random(seed)
-        return [seed]
+    def reset(self, mapping = None):
+        self.done = False
+        self.step_count = 0
+        if mapping:
+            self.mapping = mapping
+        else:
+            self.mapping = self.program.random_mapping()
 
-    def reset(self):
-        self.mapping = self.init_mapping.copy()
-        self.count = 0
-
-        latency, self.path = evaluate_maxP(from_mapping_to_matrix(self.mapping, self.n_devices), self.program, self.network)
-        self.idx = 0
-        ops = [self.path[0], self.path[1], self.path[2]]
-        ds = [self.mapping[i] for i in ops]
+        _, self.cpath = evaluate_maxP(from_mapping_to_matrix(self.mapping, self.n_devices), self.program, self.network)
+        self.op_idx = 1
+        central_op = self.cpath[1]
+        neighbors = self.op_neighbors[central_op]
+        edges = self.op_edges[central_op]
         self.state = {
-            'op': ops,
-            'device': ds
+            'op': [central_op, self.program.A[central_op]],
+            'constraint': self.program.placement_constraints[central_op],
+            'n_op': {n: self.program.A[n] for n in neighbors},
+            'n_e': {e: self.program.B[e] for e in edges},
+            'map': self.mapping
         }
         return self.state
 
@@ -72,36 +58,33 @@ class PlacementEnv(gym.Env):
 
 
     def step(self, action):
-        op = self.state['op'][1]
+        op = self.state['op'][0]
         assert action in self.program.placement_constraints[op]
 
         pre = self.mapping[op]
         self.mapping[op] = action
-        self.count += 1
-        reward = -self.cpc_cost(self.state['op'], [self.mapping[i] for i in self.state['op']])
 
+        reward, cpath = evaluate_maxP(from_mapping_to_matrix(self.mapping, self.n_devices), self.program, self.network)
+        reward = -reward
 
-        if self.idx < len(self.path) - 3:
-            self.idx += 1
-            ops = [self.path[self.idx], self.path[self.idx+1], self.path[self.idx+2]]
-            ds = [self.mapping[i] for i in ops]
-            next_state = {
-                'op': ops,
-                'device': ds
-            }
+        if self.op_idx < len(self.cpath) - 2:
+            self.op_idx += 1
         else:
-            latency, self.path = evaluate_maxP(from_mapping_to_matrix(self.mapping, self.n_devices), self.program, self.network)
-            self.idx = 0
-            ops = [self.path[0], self.path[1], self.path[2]]
-            ds = [self.mapping[i] for i in ops]
-            next_state = {
-                'op': ops,
-                'device': ds
-            }
-
+            self.cpath = cpath
+            self.op_idx = 1
+        central_op = self.cpath[self.op_idx]
+        neighbors = self.op_neighbors[central_op]
+        edges = self.op_edges[central_op]
+        next_state = {
+            'op': [central_op, self.program.A[central_op]],
+            'constraint': self.program.placement_constraints[central_op],
+            'n_op': {n: self.program.A[n] for n in neighbors},
+            'n_e': {e: self.program.B[e] for e in edges},
+            'map': self.mapping
+        }
         self.state = next_state
+        self.step_count += 1
 
-        done = self.count > self.max_steps
+        done = self.step_count > self.max_steps
         info = {'mapping_change': [op, pre, action]}
         return next_state, reward, done, info
-
