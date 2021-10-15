@@ -45,7 +45,6 @@ def evaluate(mapping, program, network):
     critical_path.reverse()
     return latency, critical_path
 
-
 def evaluate_maxP(mapping, program, network):
     for o in program.P.nodes:
         des = get_mapped_node(mapping, o)
@@ -95,7 +94,7 @@ def generate_network(n_devices, seed):
     return delay, bw, speed
 
 
-def generate_program(n_operators, n_devices, seed):
+def generate_program(n_operators, n_devices, seed, B=1000, l=100):
     np.random.seed(seed)
     G = nx.gnp_random_graph(n_operators - 2, 0.8, seed=seed, directed=True)
     DAG = nx.DiGraph([(u, v) for (u, v) in G.edges() if u < v])
@@ -115,11 +114,13 @@ def generate_program(n_operators, n_devices, seed):
         groups[np.random.choice(n_types)].add(i)
     k = len(groups)
     for e in DAG.edges:
-        DAG.edges[e]['bytes'] = np.random.uniform(500, 1000)
+        DAG.edges[e]['bytes'] = np.random.uniform(B/2, B)
     for n in DAG.nodes:
-        DAG.nodes[n]['compute'] = np.random.exponential(100)
+        DAG.nodes[n]['compute'] = np.random.exponential(l)
         group_ids = np.random.choice(k, k // 2 + (np.random.sample() > 0.5) * 1 - (np.random.sample() > 0.5) * 1)
         constraints[n] = list(set().union(*[groups[j] for j in group_ids]))
+        if not len(constraints[n]):
+            constraints[n] = np.random.choice(n_devices, n_devices//2).tolist()
     constraints[0] = [np.random.choice(constraints[0])]
     constraints[n_operators - 1] = [np.random.choice(constraints[n_operators - 1])]
     return DAG, constraints

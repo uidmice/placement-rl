@@ -26,6 +26,7 @@ class StarNetwork:
                 self.D[i, j] = self.delay[i] + self.delay[j] + self.C2
                 self.D[j, i] = self.D[i, j]
                 self.R[i, j] = 1/self.bw[i] + 1/self.bw[j] + self.C1
+                self.R[j, i] = self.R[i, j]
 
 
     def communication_delay(self, n_bytes, i, j):
