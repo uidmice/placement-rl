@@ -84,7 +84,7 @@ class PlacementAgent:
             for j in range(env.n_operators):
                 n = ops[j]
                 print(f'placing node {n}')
-                s = env.get_state(n)
+                s = env.get_state(n).to(device)
                 action_set = env.program.placement_constraints[n]
                 mask[:] = 0
                 mask[action_set] = 1
