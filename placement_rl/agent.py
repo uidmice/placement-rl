@@ -79,6 +79,8 @@ class PlacementAgent:
             rewards = []
             total_reward = 0
             np.random.shuffle(ops)
+            actions = []
+            print(f'====== EPISODE {i} =======')
             for j in range(env.n_operators):
                 n = ops[j]
                 s = env.get_state(n)
@@ -89,6 +91,7 @@ class PlacementAgent:
                 dist = torch.distributions.Categorical(probs=probs)
 
                 action = dist.sample()
+                actions.append(action)
 
                 latency = env.step(n, action.item())
                 reward = - latency/last_latency
@@ -114,6 +117,8 @@ class PlacementAgent:
                 self.actor_optimizer.step()
             episode_rewards.append(total_reward)
             reward_trace.append(rewards)
+            print(ops.tolist())
+            print(actions)
 
         return episode_rewards, reward_trace
 
