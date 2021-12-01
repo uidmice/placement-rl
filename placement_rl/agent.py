@@ -71,7 +71,7 @@ class PlacementAgent:
         reward_trace = []
         env.reset()
         ops = np.arange(env.n_operators)
-        mask = np.zeros(self.action_dim)
+        mask = torch.zeros(self.action_dim).to(device)
 
         last_latency = env.latency
 
