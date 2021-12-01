@@ -4,6 +4,8 @@ import torch
 
 from env.utils import *
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 class PlacementEnv:
     def __init__(self, network, program, seed=0):
 
@@ -81,7 +83,7 @@ class PlacementEnv:
     def get_state(self, node):
         state = [self.get_feature_device(node, d) for d in range(self.n_devices)]
         state.append(self.program.get_node_feature(node))
-        return torch.from_numpy(np.concatenate(state)).float()
+        return torch.from_numpy(np.concatenate(state)).float().to(device)
 
     def get_state_dim(self):
         return (2 * self.network.get_edge_feature_dim()

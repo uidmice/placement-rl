@@ -21,11 +21,11 @@ def get_config(n_devices, n_programs, s1=0, s2=[0]):
     return network, programs
 
 
-n_devices = 50
-n_operators = 50
+n_devices = 20
+n_operators = 20
 network = StarNetwork(*generate_network(n_devices, seed=1))
 DAG, constraints = generate_program(n_operators, n_devices, seed=2)
 program = Program(DAG, constraints, network)
 env = PlacementEnv(network, program)
 agent = PlacementAgent(env.get_state_dim(), n_devices)
-episode_rewards, reward_trace = agent.train(env, 100)
+episode_rewards, reward_trace = agent.train(env, 5)

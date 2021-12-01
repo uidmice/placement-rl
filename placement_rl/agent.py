@@ -83,6 +83,7 @@ class PlacementAgent:
             print(f'====== EPISODE {i} =======')
             for j in range(env.n_operators):
                 n = ops[j]
+                print(f'placing node {n}')
                 s = env.get_state(n)
                 action_set = env.program.placement_constraints[n]
                 mask[:] = 0
@@ -91,10 +92,12 @@ class PlacementAgent:
                 dist = torch.distributions.Categorical(probs=probs)
 
                 action = dist.sample()
+                # print(f'action: device {action}')
                 actions.append(action)
 
                 latency = env.step(n, action.item())
                 reward = - latency/last_latency
+                # print(f'reward: {reward}')
                 last_latency = latency
 
                 advantage = reward - self.critic(s)
