@@ -1,6 +1,7 @@
 import copy
 import os
 
+import networkx as nx
 import numpy as np
 import torch
 import torch.nn as nn
@@ -70,7 +71,7 @@ class PlacementAgent:
         episode_rewards = []
         reward_trace = []
         env.reset()
-        ops = np.arange(env.n_operators)
+        ops = np.array(list(nx.topological_sort(env.program.P)))
         mask = torch.zeros(self.action_dim).to(device)
 
         last_latency = env.latency
@@ -78,7 +79,6 @@ class PlacementAgent:
         for i in range(num_episodes):
             rewards = []
             total_reward = 0
-            np.random.shuffle(ops)
             actions = []
             print(f'====== EPISODE {i} =======')
             for j in range(env.n_operators):
@@ -95,7 +95,7 @@ class PlacementAgent:
                 actions.append(action.item())
 
                 latency = env.step(n, action.item())
-                reward = - latency/last_latency
+                reward = - latency/500
                 # print(f'reward: {reward}')
                 last_latency = latency
 
@@ -119,8 +119,8 @@ class PlacementAgent:
                 self.actor_optimizer.step()
             episode_rewards.append(total_reward)
             reward_trace.append(rewards)
-            print(ops.tolist())
-            print(actions)
+            # print(ops.tolist())
+            # print(actions)
 
         return episode_rewards, reward_trace
 
