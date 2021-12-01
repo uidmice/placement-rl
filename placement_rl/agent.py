@@ -101,7 +101,7 @@ class PlacementAgent:
 
                 advantage = reward - self.critic(s)
                 if j < env.n_operators - 1:
-                    ns = env.get_state(ops[j+1])
+                    ns = env.get_state(ops[j+1]).to(device)
                     advantage += self.gamma * self.critic(ns)
 
 
