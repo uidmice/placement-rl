@@ -83,7 +83,6 @@ class PlacementAgent:
             print(f'====== EPISODE {i} =======')
             for j in range(env.n_operators):
                 n = ops[j]
-                print(f'placing node {n}')
                 s = env.get_state(n).to(device)
                 action_set = env.program.placement_constraints[n]
                 mask[:] = 0
@@ -93,7 +92,7 @@ class PlacementAgent:
 
                 action = dist.sample()
                 # print(f'action: device {action}')
-                actions.append(action)
+                actions.append(action.item())
 
                 latency = env.step(n, action.item())
                 reward = - latency/last_latency

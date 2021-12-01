@@ -27,19 +27,22 @@ class StarNetwork:
                 self.D[j, i] = self.D[i, j]
                 self.R[i, j] = 1/self.bw[i] + 1/self.bw[j] + self.C1
                 self.R[j, i] = self.R[i, j]
+        self.D_r = (self.D - np.average(self.D))/np.std(self.D)
+        self.R_r = (self.R - np.average(self.R)) / np.std(self.R)
+        self.S_r = (self.S - np.average(self.S)) / np.std(self.S)
 
 
     def communication_delay(self, n_bytes, i, j):
         return self.D[i,j] + n_bytes * self.R[i,j]
 
     def get_node_feature(self, node):
-        return np.array([self.S[node]])
+        return np.array([self.S_r[node]])
 
     def get_node_feature_dim(self):
         return 1
 
     def get_edge_feature(self, node1, node2):
-        return np.array([self.R[node1, node2], self.D[node1, node2]])
+        return np.array([self.R_r[node1, node2], self.D_r[node1, node2]])
 
     def get_edge_feature_dim(self):
         return 2
@@ -51,10 +54,12 @@ class Program:
         self.P = P
         self.n_operators = self.P.number_of_nodes()
 
-        self.A = [P.nodes[i]['compute'] for i in range(self.n_operators)]
+        self.A = np.array([P.nodes[i]['compute'] for i in range(self.n_operators)])
+        self.A_r = (self.A - np.average(self.A)) / np.std(self.A)
         self.B = np.zeros((self.n_operators, self.n_operators))
         for e in self.P.edges:
             self.B[e] = self.P.edges[e]['bytes']
+        self.B_r = (self.B - np.average(self.B)) / np.std(self.B)
 
         self.placement_constraints = constraints
 
@@ -124,13 +129,13 @@ class Program:
         self.populate_criticality()
 
     def get_node_feature(self, node):
-        return np.array([self.A[node]])
+        return np.array([self.A_r[node]])
 
     def get_node_feature_dim(self):
         return 1
 
     def get_edge_feature(self, node1, node2):
-        return np.array([self.B[node1, node2]])
+        return np.array([self.B_r[node1, node2]])
 
     def get_edge_feature_dim(self):
         return 1

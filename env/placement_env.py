@@ -96,5 +96,6 @@ class PlacementEnv:
         latency, cpath = evaluate_maxP(from_mapping_to_matrix(self.mapping, self.n_devices), self.program, self.network)
 
         self.program.update_criticality(cpath)
+        self.latency = latency
 
         return latency
