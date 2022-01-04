@@ -5,6 +5,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
 def weights_init_(m):
     if isinstance(m, nn.Linear):
         torch.nn.init.xavier_uniform_(m.weight, gain=1)
@@ -59,7 +62,7 @@ class MPLayer(nn.Module):
         return {'h': F.relu(h)}
 
     def forward(self, g,  reverse):
-        g.ndata['z'] = torch.randn(g.num_nodes(), self.node_dim + self.edge_dim)
+        g.ndata['z'] = torch.randn(g.num_nodes(), self.node_dim + self.edge_dim).to(device)
         dgl.prop_nodes_topo(g, self.msg_func,
                             self.reduce_func,
                             reverse,
