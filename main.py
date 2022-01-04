@@ -67,7 +67,7 @@ def train(env, agent, init_mapping, episodes, max_iter=100):
     return rewards
 
 mapping = program.random_mapping()
-rewards = train(env, agent, 2, mapping)
+rewards = train(env, agent, mapping, 50)
 
 
 
