@@ -1,7 +1,5 @@
 import networkx as nx
 import numpy as np
-import pickle
-import os
 
 def get_mapped_node(map, i):
     return np.where(map[i] == 1)[0][0]
@@ -14,69 +12,6 @@ def from_mapping_to_matrix(mapping, n_devices):
 
 def from_matrix_to_mapping(m):
     return [get_mapped_node(m, i) for i in range(m.shape[0])]
-
-def evaluate(mapping, program, network):
-    for o in nx.topological_sort(program.P):
-        if program.P.in_degree(o) == 0:
-            program.P.nodes[o]['t'] = program.T[o, get_mapped_node(mapping, o)]
-            program.P.nodes[o]['critical'] = None
-        else:
-            max_time = 0
-            critical_node = None
-            des = get_mapped_node(mapping, o)
-            for in_edge in program.P.in_edges(o):
-                bytes = program.B[in_edge]
-                s = get_mapped_node(mapping, in_edge[0])
-                c = network.communication_delay(bytes, s, des)
-                dl = c + program.P.nodes[in_edge[0]]['t']
-                if dl > max_time:
-                    max_time = dl
-                    critical_node = in_edge[0]
-            program.P.nodes[o]['t'] = max_time + program.T[o, des]
-            program.P.nodes[o]['critical'] = critical_node
-    o = list(nx.topological_sort(program.P))[-1]
-    latency = program.P.nodes[o]['t'] 
-    critical_path = [o]
-
-    n = program.P.nodes[o]['critical']
-    while n is not None:
-        critical_path.append(n)
-        n = program.P.nodes[n]['critical']
-    critical_path.reverse()
-    return latency, critical_path
-
-def evaluate_maxP(mapping, program, network):
-    for o in program.P.nodes:
-        des = get_mapped_node(mapping, o)
-        program.P.nodes[o]['c'] = program.T[o, des]
-            
-    for e in program.P.edges:
-        d1 = get_mapped_node(mapping, e[0])
-        d2 = get_mapped_node(mapping, e[1])
-        b = program.B[e]
-        program.P.edges[e]['c'] = network.communication_delay(b, d1, d2)
-    
-    for o in program.P.nodes:
-        if program.P.in_degree(o) == 0:
-            for e in program.P.out_edges(o):
-                program.P.edges[e]['c'] += program.P.nodes[o]['c']
-            continue
-        if program.P.out_degree(o) == 0:
-            for e in program.P.in_edges(o):
-                program.P.edges[e]['c'] += program.P.nodes[o]['c']
-            continue
-        for e in program.P.in_edges(o):
-            program.P.edges[e]['c'] += program.P.nodes[o]['c']/2
-        for e in program.P.out_edges(o):
-            program.P.edges[e]['c'] += program.P.nodes[o]['c']/2
-    
-    critical_path = nx.dag_longest_path(program.P, 'c')
-    latency = 0
-    for i in range(len(critical_path)-1):
-        latency += program.P.edges[critical_path[i], critical_path[i+1]]['c']
-    
-    return latency, critical_path
-
 
 def generate_network(n_devices, seed):
     np.random.seed(seed)

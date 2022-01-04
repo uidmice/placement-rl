@@ -24,13 +24,13 @@ def iterative(mapping, program, network):
             d = get_mapped_node(map, o)
             d1 = get_mapped_node(map, s1)
             d2 = get_mapped_node(map, s2)
-            c_p_c = network.communication_delay(program.B[s1, o], d1, d) + network.communication_delay(program.B[o, s2],
-                                                                                                       d, d2) + \
+            c_p_c = network.communication_delay(program.data_feature[s1, o], d1, d) + network.communication_delay(program.data_feature[o, s2],
+                                                                                                                  d, d2) + \
                     program.T[o, d]
             choices = list(constraints[o])
             for n in choices:
-                new_cpc = network.communication_delay(program.B[s1, o], d1, n) + network.communication_delay(
-                    program.B[o, s2], n, d2) + program.T[o, n]
+                new_cpc = network.communication_delay(program.data_feature[s1, o], d1, n) + network.communication_delay(
+                    program.data_feature[o, s2], n, d2) + program.T[o, n]
                 if new_cpc < c_p_c:
                     c_p_c = new_cpc
                     d = n
@@ -97,7 +97,7 @@ def iterative_qlp(mapping, program, network):
     count = 7
     while True:
         p_constraints = [constraints[i] for i in critical_path]
-        B = program.B[critical_path][:, critical_path]
+        B = program.data_feature[critical_path][:, critical_path]
         T = program.T[critical_path]
         D = network.D
         R = network.R
