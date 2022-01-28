@@ -38,6 +38,7 @@ def train(env, agent, init_mapping, episodes, max_iter=100):
     rewards = []
     mask = torch.zeros(env.n_devices).to(device)
     for i in range(episodes):
+        print(f'=== Episode {i} ===')
         cur_mapping = init_mapping.copy()
         ep_reward = 0
         for t in range(max_iter):
@@ -50,12 +51,9 @@ def train(env, agent, init_mapping, episodes, max_iter=100):
             mask[:] = 0
             mask[constraints] = 1
             for d in range(n_devices):
-                if d != cur_mapping[s]:
-                    temp_mapping[s] = d
-                    t_g = env.get_placement_graph(temp_mapping).to(device)
-                    graphs.append(t_g)
-                else:
-                    graphs.append(g)
+                temp_mapping[s] = d
+                t_g = env.get_placement_graph(temp_mapping).to(device)
+                graphs.append(t_g)
             action = agent.dev_selection(graphs, s, parallel, mask=mask)
             cur_mapping[s] = action
             reward, _ = env.evaluate(cur_mapping)
@@ -67,7 +65,7 @@ def train(env, agent, init_mapping, episodes, max_iter=100):
     return rewards
 
 mapping = program.random_mapping()
-rewards = train(env, agent, mapping, 50)
+rewards = train(env, agent, mapping, 50, 20)
 
 
 

@@ -13,7 +13,7 @@ def weights_init_(m):
 class SoftmaxActor(nn.Module):
     def __init__(self,
                  input_dim,
-                 hidden_dim=128,
+                 hidden_dim=32,
                  ):
         super(SoftmaxActor, self).__init__()
 
@@ -28,7 +28,7 @@ class SoftmaxActor(nn.Module):
 
     def forward(self, x, mask=None):
         x = F.relu(self.linear1(x))
-        x = F.relu(self.linear2(x))
+        # x = F.relu(self.linear2(x))
         x = self.linear3(x)
 
         if mask is None:

@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import dgl
 
 from placement_rl.gnn import OpNet, DevNet
 from placement_rl.rl_agent import SoftmaxActor
@@ -23,7 +24,7 @@ epsilon = 1e-6
 
 class PlacementAgent:
     def __init__(self, node_dim, edge_dim, out_op_dim, out_dev_dim,
-                 hidden_dim=128,
+                 hidden_dim=64,
                  lr=3e-4,
                  gamma=0.99):
         self.node_dim = node_dim
@@ -58,10 +59,13 @@ class PlacementAgent:
         return action.item()
 
     def dev_selection(self, graphs, op, parallel, mask=None):
-        x = torch.empty(len(graphs), 2 * self.out_dev_dim + 2*self.out_op_dim).to(device)
-        for i, g in enumerate(graphs):
-            u = self.op_embedding(g).detach()
-            x[i] = self.dev_embedding(g, u, op, parallel)
+        # x = torch.empty(len(graphs), 2 * self.out_dev_dim + 2*self.out_op_dim).to(device)
+        # for i, g in enumerate(graphs):
+        #     u = self.op_embedding(g).detach()
+        #     x[i] = self.dev_embedding(g, u, op, parallel)
+        gs = dgl.batch(graphs)
+        u = self.op_embedding(gs)
+        x = self.dev_embedding(gs, u, op, parallel)
         probs = self.dev_policy(x, mask)
         m = torch.distributions.Categorical(probs=probs)
         action = m.sample()
