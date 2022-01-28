@@ -102,10 +102,25 @@ class DevNet(nn.Module):
 
 
     def forward(self, graph, feat, op, parallel):
-        fh = torch.mean(self.forward_layer(graph, feat), 1)[op]
-        bh = torch.mean(self.backward_layer(dgl.reverse(graph), feat), 1)[op]
-        para = torch.sum(feat[parallel], 0)
-        return torch.cat([fh, bh, feat[op], para])
+        n = graph.batch_size
+        if n == 1:
+            fh = torch.mean(self.forward_layer(graph, feat), 1)[op]
+            bh = torch.mean(self.backward_layer(dgl.reverse(graph), feat), 1)[op]
+            para = torch.sum(feat[parallel], 0)
+            return torch.cat([fh, bh, feat[op], para])
+
+        m = graph.num_nodes()//n  # number of nodes per graph
+        idx = list(range(op, graph.num_nodes() , m))
+        fh = torch.mean(self.forward_layer(graph, feat), 1)[idx]
+        bh = torch.mean(self.backward_layer(dgl.reverse(graph), feat), 1)[idx]
+
+        para = [torch.sum(feat[parallel], 0)]
+        for i in range(m, graph.num_nodes(), m):
+            para_idx = [a + i for a in parallel]
+            para.append(torch.sum(feat[para_idx], 0))
+
+        para = torch.stack(para)
+        return torch.cat([fh, bh, feat[idx], para], dim=1)
 
 
 
