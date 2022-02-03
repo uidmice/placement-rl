@@ -47,11 +47,11 @@ class MPLayer(nn.Module):
         reset(self.update_layer)
 
     def msg_func(self, edges):
-        msg = torch.cat([edges.src['x'], edges.data['x']], dim=1)
+        msg = self.pre_layer(torch.cat([edges.src['x'], edges.data['x']], dim=1))
         return {'m': msg}
 
     def reduce_func(self, nodes):
-        z = self.pre_layer(torch.sum((nodes.mailbox['m']), 1))
+        z = torch.sum((nodes.mailbox['m']), 1)
         return {'z': F.relu(z)}
 
     def node_update(self, nodes):

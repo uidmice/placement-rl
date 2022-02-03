@@ -83,17 +83,17 @@ class PlacementAgent:
         returns = torch.tensor(returns).to(device)
         returns = (returns - returns.mean()) / (returns.std() + epsilon)
 
-        self.dev_network_optim.zero_grad()
-        for log_prob, R in zip(self.dev_log_probs, returns):
-            dev_policy_loss -= log_prob * R
-        dev_policy_loss.backward()
-        self.dev_network_optim.step()
-
         self.op_network_optim.zero_grad()
         for log_prob, R in zip(self.op_log_probs, returns):
             op_policy_loss -= log_prob * R
         op_policy_loss.backward()
         self.op_network_optim.step()
+
+        self.dev_network_optim.zero_grad()
+        for log_prob, R in zip(self.dev_log_probs, returns):
+            dev_policy_loss -= log_prob * R
+        dev_policy_loss.backward()
+        self.dev_network_optim.step()
 
         del self.saved_rewards[:]
         del self.op_log_probs[:]
