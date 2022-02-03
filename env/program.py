@@ -1,6 +1,7 @@
 import networkx as nx
 import torch
 import numpy as np
+import matplotlib.pyplot as plt
 
 class Program:
     def __init__(self, P: nx.DiGraph, constraints):
@@ -28,6 +29,10 @@ class Program:
     def random_mapping(self):
         mapping = [np.random.choice(self.placement_constraints[i]) for i in range(self.n_operators)]
         return mapping
+
+    def draw(self):
+        nx.draw_networkx(self.P)
+        plt.show()
 
     def init_criticality (self, deterministic=False):
         for n in nx.topological_sort(self.P):
