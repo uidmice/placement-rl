@@ -1,8 +1,12 @@
+import numpy as np
 import torch
+import matplotlib.pyplot as plt
+import random
 
 from env.utils import generate_program, generate_network
 from env.network import StarNetwork
 from env.program import Program
+from env.latency import evaluate
 
 from placement_rl.placement_env import PlacementEnv
 from placement_rl.placement_agent import PlacementAgent
@@ -33,12 +37,22 @@ env = PlacementEnv(network, program)
 agent = PlacementAgent(env.get_node_feature_dim(),
                        env.get_edge_feature_dim(),
                        10, 10)
+mapping = program.random_mapping()
+print(program.placement_constraints)
 
-def train(env, agent, init_mapping, episodes, max_iter=100):
-    rewards = []
+
+def train(env, agent, init_mapping, episodes, max_iter=50, update_op_net=True, update_dev_net=True, greedy_dev_selection=False):
+    op_rewards = []
+
+    lat_records = []
+    act_records = []
+
     mask = torch.zeros(env.n_devices).to(device)
+    last_latency = np.Inf
     for i in range(episodes):
         print(f'=== Episode {i} ===')
+        latencies = []
+        actions = []
         cur_mapping = init_mapping.copy()
         ep_reward = 0
         for t in range(max_iter):
@@ -46,27 +60,45 @@ def train(env, agent, init_mapping, episodes, max_iter=100):
             temp_mapping = cur_mapping.copy()
             g = env.get_placement_graph(temp_mapping).to(device)
             s = agent.op_selection(g)
-            parallel = env.op_parallel[s]
-            constraints = env.program.placement_constraints[s]
-            mask[:] = 0
-            mask[constraints] = 1
-            for d in range(n_devices):
-                temp_mapping[s] = d
-                t_g = env.get_placement_graph(temp_mapping).to(device)
-                graphs.append(t_g)
-            action = agent.dev_selection(graphs, s, parallel, mask=mask)
+
+            if greedy_dev_selection:
+                action = agent.dev_selection_greedy(cur_mapping, s, env.program.placement_constraints[s], env)
+                action = random.choice(action)
+            else:
+                parallel = env.op_parallel[s]
+                constraints = env.program.placement_constraints[s]
+                mask[:] = 0
+                mask[constraints] = 1
+                for d in range(n_devices):
+                    temp_mapping[s] = d
+                    t_g = env.get_placement_graph(temp_mapping).to(device)
+                    graphs.append(t_g)
+                action = agent.dev_selection(graphs, s, parallel, mask=mask)
+
+            # print(f'Mapping operator {s} to device {action}')
             cur_mapping[s] = action
-            reward, _ = env.evaluate(cur_mapping)
-            reward = -reward / 500
+            latency, _ = env.evaluate(cur_mapping)
+            if latency > last_latency:
+                reward = 1
+            else:
+                reward = 0
+            last_latency = latency
+
+            latencies.append(latency)
+            actions.append([s, action])
             agent.saved_rewards.append(reward)
             ep_reward += reward
-        agent.finish_episode()
-        rewards.append(ep_reward)
-    return rewards
 
-mapping = program.random_mapping()
-rewards = train(env, agent, mapping, 50, 20)
+        plt.figure()
+        plt.plot(agent.saved_rewards)
+        agent.finish_episode(update_op_net, update_dev_net)
+        op_rewards.append(ep_reward)
+        lat_records.append(latencies)
+        act_records.append(actions)
+    return op_rewards, lat_records, act_records
 
+
+rewards, lat_records = train(env, agent, mapping, 10,  max_iter=50, update_op_net=True, update_dev_net=False, greedy_dev_selection=True)
 
 
 

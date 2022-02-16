@@ -72,7 +72,17 @@ class PlacementAgent:
         self.dev_log_probs.append(m.log_prob(action))
         return action.item()
 
-    def finish_episode(self):
+    def dev_selection_greedy(self, map:list, op, options, env):
+        lat = {}
+        mapping = map.copy()
+        for d in options:
+            mapping[op]=d
+            latency, _ = env.evaluate(mapping)
+            lat[d] = latency
+        best = min(lat.values())
+        return [d for d in options if lat[d]==best]
+
+    def finish_episode(self, update_op_network=True, update_dev_network=True):
         R = 0
         op_policy_loss = 0
         dev_policy_loss = 0
@@ -83,17 +93,19 @@ class PlacementAgent:
         returns = torch.tensor(returns).to(device)
         returns = (returns - returns.mean()) / (returns.std() + epsilon)
 
-        self.op_network_optim.zero_grad()
-        for log_prob, R in zip(self.op_log_probs, returns):
-            op_policy_loss -= log_prob * R
-        op_policy_loss.backward()
-        self.op_network_optim.step()
+        if update_op_network:
+            self.op_network_optim.zero_grad()
+            for log_prob, R in zip(self.op_log_probs, returns):
+                op_policy_loss -= log_prob * R
+            op_policy_loss.backward()
+            self.op_network_optim.step()
 
-        self.dev_network_optim.zero_grad()
-        for log_prob, R in zip(self.dev_log_probs, returns):
-            dev_policy_loss -= log_prob * R
-        dev_policy_loss.backward()
-        self.dev_network_optim.step()
+        if update_dev_network:
+            self.dev_network_optim.zero_grad()
+            for log_prob, R in zip(self.dev_log_probs, returns):
+                dev_policy_loss -= log_prob * R
+            dev_policy_loss.backward()
+            self.dev_network_optim.step()
 
         del self.saved_rewards[:]
         del self.op_log_probs[:]
