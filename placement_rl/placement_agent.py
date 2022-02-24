@@ -25,7 +25,7 @@ epsilon = 1e-6
 class PlacementAgent:
     def __init__(self, node_dim, edge_dim, out_op_dim, out_dev_dim,
                  hidden_dim=64,
-                 lr=3e-4,
+                 lr=0.001,
                  gamma=0.99):
         self.node_dim = node_dim
         self.edge_dim = edge_dim

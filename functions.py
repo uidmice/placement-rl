@@ -1,6 +1,7 @@
 import numpy as np
 from env.utils import *
 import pyomo.environ as pyo
+from env.latency import evaluate
 
 
 def iterative(mapping, program, network):
@@ -140,7 +141,7 @@ def exhaustive(mapping, program, network):
                     yield p_m
 
     min_L = np.inf
-    min_mapping = None
+    min_mapping = []
     mapp = np.copy(mapping)
     solution = []
 
@@ -152,6 +153,9 @@ def exhaustive(mapping, program, network):
         solution.append(latency_i)
         if latency_i < min_L:
             min_L = latency_i
-            min_mapping = np.copy(mapp)
+            min_mapping = []
+            min_mapping.append(mapp)
+        elif latency_i == min_L:
+            min_mapping.append(mapp)
     return min_mapping, min_L, solution
 
