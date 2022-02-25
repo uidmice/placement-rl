@@ -50,9 +50,9 @@ class PlacementAgent:
         self.saved_rewards = []
 
 
-    def op_selection(self, g):
+    def op_selection(self, g, mask=None):
         u = self.op_embedding(g)
-        probs = self.op_policy(u)
+        probs = self.op_policy(u, mask)
         m = torch.distributions.Categorical(probs=probs)
         action = m.sample()
         self.op_log_probs.append(m.log_prob(action))
@@ -72,17 +72,17 @@ class PlacementAgent:
         self.dev_log_probs.append(m.log_prob(action))
         return action.item()
 
-    def dev_selection_greedy(self, map:list, op, options, env):
+    def dev_selection_greedy(self, map:list, op, options, env, noise=0):
         lat = {}
         mapping = map.copy()
         for d in options:
             mapping[op]=d
-            latency, _ = env.evaluate(mapping)
+            latency, _ = env.evaluate(mapping, noise)
             lat[d] = latency
         best = min(lat.values())
         return [d for d in options if lat[d]==best]
 
-    def finish_episode(self, update_op_network=True, update_dev_network=True):
+    def finish_episode(self, update_op_network=True, update_dev_network=True, use_baseline=True):
         R = 0
         op_policy_loss = 0
         dev_policy_loss = 0
@@ -90,8 +90,20 @@ class PlacementAgent:
         for r in self.saved_rewards[::-1]:
             R = r + self.gamma * R
             returns.insert(0, R)
+
+        if use_baseline:
+            for i in range(len(self.saved_rewards)):
+                if i == 0:
+                    bk = self.saved_rewards[0]
+                else:
+                    try:
+                        bk = sum(self.saved_rewards[:i + 1]) / len(self.saved_rewards[:i + 1])
+                    except:
+                        bk = sum(self.saved_rewards) / len(self.saved_rewards)
+                returns[i] -= bk
+
         returns = torch.tensor(returns).to(device)
-        returns = (returns - returns.mean()) / (returns.std() + epsilon)
+        # returns = (returns - returns.mean()) / (returns.std() + epsilon)
 
         if update_op_network:
             self.op_network_optim.zero_grad()

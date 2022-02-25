@@ -5,13 +5,13 @@ from env.latency import evaluate, computation_latency, communication_latency
 from heft.core import schedule
 
 
-def random_placement(env, number_mappings=100):
+def random_placement(env, number_mappings=100, noise=0):
     latencies = np.zeros(number_mappings)
     min_lat = np.Inf
 
     for i in range(number_mappings):
         mapping = [np.random.choice(env.program.placement_constraints[i]) for i in range(env.program.n_operators)]
-        latencies[i], _ = env.evaluate(mapping)
+        latencies[i], _ = env.evaluate(mapping, noise)
         if latencies[i] < min_lat:
             min_lat = latencies[i]
             map = mapping
