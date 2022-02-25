@@ -17,14 +17,14 @@ def random_placement(env, number_mappings=100, noise=0):
             map = mapping
     return map, min_lat, latencies
 
-def heft(env):
+def heft(env, noise=0):
     program, network = env.program, env.network
     dag = {}
     for n in program.P.nodes:
         dag[n] = list(program.P.neighbors(n))
 
-    compcost = lambda op, dev: computation_latency(program, network, op, dev)
-    commcost = lambda op1, op2, d1, d2: communication_latency(program, network, op1, op2, d1, d2)
+    compcost = lambda op, dev: computation_latency(program, network, op, dev, noise)
+    commcost = lambda op1, op2, d1, d2: communication_latency(program, network, op1, op2, d1, d2, noise)
     orders, jobson = schedule(dag, program.placement_constraints, compcost, commcost)
     return [jobson[i] for i in range(program.n_operators)], max(e.end for e in orders[program.pinned[1]])
 
