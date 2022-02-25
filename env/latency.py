@@ -10,7 +10,7 @@ def computation_latency(program, network, op, dev, noise=0):
         r = a * b
     else:
         r = torch.dot(a.double(), b.double())
-    return max(0, torch.normal(mean = r, std=noise))
+    return max(torch.tensor(0).float(), torch.normal(mean = r, std=noise))
 
 def all_computation_latency(program, network, noise=0):
     return program.op_feature @ torch.t(network.dev_feature) + torch.normal(std=noise, size=(program.n_operators, network.n_devices))
@@ -25,7 +25,7 @@ def communication_latency(program, network, op1, op2, dev1, dev2, noise=0.0):
         r = a * b
     else:
         r = torch.dot(a.double(), b.double())
-    return max(0, torch.normal(mean = r, std=noise))
+    return max(torch.tensor(0).float(), torch.normal(mean = r, std=noise))
 
 
 # def evaluate(mapping, program, network):

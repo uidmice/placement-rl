@@ -10,7 +10,7 @@ from placement_rl.rl_agent import SoftmaxActor
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 epsilon = 1e-6
-
+torch.autograd.set_detect_anomaly(True)
 # # Soft update of target critic network
 # def soft_update(target, source, tau):
 #     for target_param, param in zip(target.parameters(), source.parameters()):
@@ -108,14 +108,14 @@ class PlacementAgent:
         if update_op_network:
             self.op_network_optim.zero_grad()
             for log_prob, R in zip(self.op_log_probs, returns):
-                op_policy_loss -= log_prob * R
+                op_policy_loss = op_policy_loss - log_prob * R
             op_policy_loss.backward()
             self.op_network_optim.step()
 
         if update_dev_network:
             self.dev_network_optim.zero_grad()
             for log_prob, R in zip(self.dev_log_probs, returns):
-                dev_policy_loss -= log_prob * R
+                dev_policy_loss = dev_policy_loss - log_prob * R
             dev_policy_loss.backward()
             self.dev_network_optim.step()
 
