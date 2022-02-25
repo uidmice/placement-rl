@@ -40,7 +40,18 @@ num_epo = 20
 
 
 
-def train(env, agent, init_mapping, episodes, place_once=True, max_iter=50, update_op_net=True, update_dev_net=True, greedy_dev_selection=False, use_baseline=True, noise=0):
+def train(env,
+          agent,
+          init_mapping,
+          episodes,
+          place_once=True,
+          max_iter=50,
+          update_op_net=True,
+          update_dev_net=True,
+          greedy_dev_selection=False,
+          use_baseline=True,
+          noise=0,
+          early_stop = 5):
     op_rewards = []
 
     map_records = [init_mapping]
@@ -49,6 +60,7 @@ def train(env, agent, init_mapping, episodes, place_once=True, max_iter=50, upda
 
     mask_dev = torch.zeros(env.n_devices).to(device)
 
+    currrent_stop_iter = early_stop
 
     if place_once:
         max_iter = env.n_operators - 2
@@ -65,7 +77,7 @@ def train(env, agent, init_mapping, episodes, place_once=True, max_iter=50, upda
         mask_op = torch.ones(env.n_operators).to(device)
         mask_op[0] = mask_op[-1] = 0
 
-        for t in range(max_iter):
+        for t in range(currrent_stop_iter):
             graphs = []
             temp_mapping = cur_mapping.copy()
             g = env.get_placement_graph(temp_mapping).to(device)
@@ -98,6 +110,7 @@ def train(env, agent, init_mapping, episodes, place_once=True, max_iter=50, upda
             actions.append([s, action])
             agent.saved_rewards.append(reward)
             ep_reward = reward + ep_reward * agent.gamma
+
         agent.finish_episode(update_op_net, update_dev_net, use_baseline)
         # agent.finish_episode_REINFORCE(update_op_net, update_dev_net)
         # last_latency, _ = env.evaluate(init_mapping)
@@ -107,6 +120,19 @@ def train(env, agent, init_mapping, episodes, place_once=True, max_iter=50, upda
         map_records.append(cur_mapping)
         lat_records.append(latencies)
         act_records.append(actions)
+
+        if len(lat_records) >= 2:
+            last_lat = lat_records[-2]
+            incr_flag = 0
+            for i in range(len(last_lat)):
+                if last_lat[i] < latencies[i]:
+                    incr_flag = 0
+                    break
+                incr_flag = 1
+            if incr_flag:
+                currrent_stop_iter += 1
+
+
     return op_rewards, lat_records, act_records, map_records
 
 
