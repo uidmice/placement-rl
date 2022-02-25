@@ -159,11 +159,11 @@ class PlacementAgent:
         for r in self.saved_rewards:
             dif = r*10
             latency = init_latency - dif
-            latencys.append(latency)
+            latencys.append(-latency)
             init_latency = latency
 
         for i in range(len(self.saved_rewards)):
-            rk = -sum(latencys[i:])
+            rk = sum(latencys[i:])
 
             if i == 0:
                 bk = latencys[0]
@@ -208,11 +208,11 @@ class PlacementAgent:
         for r in self.saved_rewards:
             dif = r*10
             latency = init_latency - dif
-            latencys.append(latency**(1/2))
+            latencys.append(-latency**(1/2))
             init_latency = latency
 
         for i in range(len(self.saved_rewards)):
-            rk = -sum(latencys[i:])
+            rk = sum(latencys[i:])
 
             if i == 0:
                 bk = latencys[0]
