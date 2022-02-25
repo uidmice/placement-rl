@@ -97,6 +97,10 @@ def train(env, agent, init_mapping, episodes, max_iter=50, update_op_net=True, u
             agent.saved_rewards.append(reward)
             ep_reward = reward + ep_reward * agent.gamma
         agent.finish_episode(update_op_net, update_dev_net)
+        # agent.finish_episode_REINFORCE(update_op_net, update_dev_net)
+        # last_latency, _ = env.evaluate(init_mapping)
+        # agent.finish_episode_REINFORCE_latency(last_latency, update_op_net,update_dev_net)
+        # agent.finish_episode_REINFORCE_latency_sqrt(last_latency,update_op_net,update_dev_net)
         print(cur_mapping)
         op_rewards.append(ep_reward)
         lat_records.append(latencies)
@@ -104,5 +108,43 @@ def train(env, agent, init_mapping, episodes, max_iter=50, update_op_net=True, u
     return op_rewards, lat_records, act_records
 
 
-rewards, lat_records, action_records = train(env, agent, mapping, 100,  max_iter=50, update_op_net=True, update_dev_net=False, greedy_dev_selection=True)
+rewards, lat_records, action_records = train(env, agent, mapping, 20,  max_iter=50, update_op_net=True, update_dev_net=False, greedy_dev_selection=True)
+
+
+test_name = "10episode_REINFORCE_original"
+plt.plot(range(len(rewards)), rewards)
+plt.savefig("./test_imgs/reward_{}.png".format(test_name))
+plt.clf()
+
+for i in range(0, len(lat_records),2):
+    plt.plot(range(len(lat_records[0])), lat_records[i], label = "episode: {}".format(i))
+plt.legend()
+plt.savefig("./test_imgs/latency_{}.png".format(test_name))
+plt.clf()
+
+length = len(lat_records)
+plt.plot(range(len(lat_records[0])), lat_records[0], label = "episode:{}".format(1))
+plt.plot(range(len(lat_records[0])), lat_records[length//4], label = "episode:{}".format(length//4))
+plt.plot(range(len(lat_records[0])), lat_records[length*2//4], label = "episode:{}".format(length*2//4))
+plt.plot(range(len(lat_records[0])), lat_records[length*3//4], label = "episode:{}".format(length*3//4))
+plt.plot(range(len(lat_records[0])), lat_records[-1], label = "episode:{}".format(length))
+plt.legend()
+plt.savefig("./test_imgs/latency_{}_5_line.png".format(test_name))
+plt.clf()
+
+rewards_arr = np.array(rewards)
+lat_arr = np.array(lat_records)
+np.save("./test_imgs/rewards_{}.npy".format(test_name), rewards_arr)
+np.save("./test_imgs/latency_{}.npy".format(test_name), lat_arr)
+
+#
+#
+# print("rewards: {}".format(len(rewards)))
+# print(rewards)
+#
+# print("lat_records: {}".format(len(lat_records)))
+# print(lat_records)
+#
+# print("action: {}".format(len(action_records)))
+# print(action_records)
 

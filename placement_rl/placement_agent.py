@@ -111,6 +111,140 @@ class PlacementAgent:
         del self.op_log_probs[:]
         del self.dev_log_probs[:]
 
+    def finish_episode_REINFORCE(self, update_op_network=True, update_dev_network=False):
+        R = 0
+        op_policy_loss = 0
+        dev_policy_loss = 0
+        returns = []
+        for i in range(len(self.saved_rewards)):
+            sum_reward = sum(self.saved_rewards[i:])
+            if i == 0:
+                bk = self.saved_rewards[0]
+            else:
+                try:
+                    bk = sum(self.saved_rewards[:i+1])/len(self.saved_rewards[:i+1])
+                except:
+                    bk = sum(self.saved_rewards) / len(self.saved_rewards)
+            returns.append(sum_reward - bk)
+
+        returns = torch.tensor(returns).to(device)
+        # returns = (returns - returns.mean()) / (returns.std() + epsilon)
+
+        if update_op_network:
+            self.op_network_optim.zero_grad()
+            for log_prob, R in zip(self.op_log_probs, returns):
+                op_policy_loss -= log_prob * R
+                # op_policy_loss += log_prob * R
+            op_policy_loss.backward()
+            self.op_network_optim.step()
+
+        if update_dev_network:
+            self.dev_network_optim.zero_grad()
+            for log_prob, R in zip(self.dev_log_probs, returns):
+                dev_policy_loss -= log_prob * R
+            dev_policy_loss.backward()
+            self.dev_network_optim.step()
+
+        del self.saved_rewards[:]
+        del self.op_log_probs[:]
+        del self.dev_log_probs[:]
+
+    def finish_episode_REINFORCE_latency(self, init_latency, update_op_network=True, update_dev_network=False):
+        R = 0
+        op_policy_loss = 0
+        dev_policy_loss = 0
+        returns = []
+        latencys = []
+
+        for r in self.saved_rewards:
+            dif = r*10
+            latency = init_latency - dif
+            latencys.append(latency)
+            init_latency = latency
+
+        for i in range(len(self.saved_rewards)):
+            rk = -sum(latencys[i:])
+
+            if i == 0:
+                bk = latencys[0]
+            else:
+                try:
+                    bk = sum(latencys[:i+1])/len(latencys[:i+1])
+                except:
+                    bk = sum(latencys) / len(latencys)
+            returns.append(rk - bk)
+
+        returns = torch.tensor(returns).to(device)
+        # returns = (returns - returns.mean()) / (returns.std() + epsilon)
+
+        if update_op_network:
+            self.op_network_optim.zero_grad()
+            for log_prob, R in zip(self.op_log_probs, returns):
+                # op_policy_loss -= log_prob * R
+                op_policy_loss += log_prob * R
+            op_policy_loss.backward()
+            self.op_network_optim.step()
+
+        if update_dev_network:
+            self.dev_network_optim.zero_grad()
+            for log_prob, R in zip(self.dev_log_probs, returns):
+                dev_policy_loss -= log_prob * R
+            dev_policy_loss.backward()
+            self.dev_network_optim.step()
+
+        del self.saved_rewards[:]
+        del self.op_log_probs[:]
+        del self.dev_log_probs[:]
+
+
+
+    def finish_episode_REINFORCE_latency_sqrt(self, init_latency, update_op_network=True, update_dev_network=False):
+        R = 0
+        op_policy_loss = 0
+        dev_policy_loss = 0
+        returns = []
+        latencys = []
+
+        for r in self.saved_rewards:
+            dif = r*10
+            latency = init_latency - dif
+            latencys.append(latency**(1/2))
+            init_latency = latency
+
+        for i in range(len(self.saved_rewards)):
+            rk = -sum(latencys[i:])
+
+            if i == 0:
+                bk = latencys[0]
+            else:
+                try:
+                    bk = sum(latencys[:i+1])/len(latencys[:i+1])
+                except:
+                    bk = sum(latencys) / len(latencys)
+            returns.append(rk - bk)
+
+        returns = torch.tensor(returns).to(device)
+        # returns = (returns - returns.mean()) / (returns.std() + epsilon)
+
+        if update_op_network:
+            self.op_network_optim.zero_grad()
+            for log_prob, R in zip(self.op_log_probs, returns):
+                # op_policy_loss -= log_prob * R
+                op_policy_loss += log_prob * R
+            op_policy_loss.backward()
+            self.op_network_optim.step()
+
+        if update_dev_network:
+            self.dev_network_optim.zero_grad()
+            for log_prob, R in zip(self.dev_log_probs, returns):
+                dev_policy_loss -= log_prob * R
+            dev_policy_loss.backward()
+            self.dev_network_optim.step()
+
+        del self.saved_rewards[:]
+        del self.op_log_probs[:]
+        del self.dev_log_probs[:]
+
 
 
 
