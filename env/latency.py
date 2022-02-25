@@ -89,7 +89,7 @@ class op:
         # return max(times, key=times.get)
 
 
-def evaluate(mapping, program, network):
+def evaluate(mapping, program, network, noise=0):
     env = simpy.Environment()
     map = from_matrix_to_mapping(mapping)
 
@@ -111,7 +111,7 @@ def evaluate(mapping, program, network):
     for e in program.P.edges:
         d1 = map[e[0]]
         d2 = map[e[1]]
-        comm_time[e] = communication_latency(program, network, e[0], e[1], d1, d2)
+        comm_time[e] = communication_latency(program, network, e[0], e[1], d1, d2, noise)
         comm_events[e] = env.process(send_output(finish_event[e[0]], e[0], e[1], comm_time[e]))
 
     ops = {}
@@ -121,7 +121,7 @@ def evaluate(mapping, program, network):
         inputs = {e: comm_events[e] for e in program.P.in_edges(o)}
         outputs = finish_event[o]
         des = map[o]
-        ops[o] = op(env, inputs, outputs, computation_latency(program, network, o, des), devices[des])
+        ops[o] = op(env, inputs, outputs, computation_latency(program, network, o, des, noise), devices[des])
         processes[o] = env.process(ops[o].run(o, des, record))
 
     while env.peek() < float('inf'):
