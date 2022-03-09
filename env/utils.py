@@ -28,7 +28,6 @@ def generate_network(n_devices, seed):
     speed = np.random.uniform(1, 3, n_devices)
     return delay, bw, speed
 
-
 def generate_program(n_operators, n_devices, seed, B=1000, l=100):
     np.random.seed(seed)
     G = nx.gnp_random_graph(n_operators - 2, 0.8, seed=seed, directed=True)
