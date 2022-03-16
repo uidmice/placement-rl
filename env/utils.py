@@ -313,6 +313,11 @@ def to_pickle(save_path, res):
     with open(save_path, 'wb') as handle:
         pickle.dump(res, handle, protocol = pickle.HIGHEST_PROTOCOL)
 
+def load_pickle(path):
+    with open(path, 'rb') as handle:
+        res = pickle.load(handle)
+    return res
+
 def load_weights(path):
     with open(path, 'rb') as handle:
         res = pickle.load(handle)
@@ -333,6 +338,44 @@ def save_dag(save_path, G):
 def load_dag(path):
     G = nx.read_gpickle(path)
     return G
+
+
+def load_training_instance_for(v, seed, alpha, ccr, beta, n_devices):
+    graph_path = os.path.join("./data", "dag_structure_v_{}".format(v),
+                              "dag_structure_v_{}_seed_{}_alpha_{}.pkl".format(v, seed, alpha))
+    param_path = os.path.join("./data", "dag_structure_v_{}".format(v),
+                              "dag_params_{}_seed_{}_alpha_{}.pkl".format(v, seed, alpha))
+    weight_path = os.path.join("./data", "weights_v_{}".format(v),
+                               "weights_heterogeneous_v_{}_seed_{}_alpha_{}_ccr_{}_beta_{}_ndevices_{}.pkl".format(v,
+                                                                                                                   seed,
+                                                                                                                   alpha,
+                                                                                                                   ccr,
+                                                                                                                   beta,
+                                                                                                                   n_devices))
+
+    G = load_dag(graph_path)
+    widths, height = load_dag_params(param_path)
+
+    weights = load_pickle(weight_path)
+    delay, bw, speed, compute, byte = weights['delay'], weights['bw'], weights['speed'], weights['compute'], weights[
+        'byte']
+
+    cnt = 1
+
+    for i in range(height):
+        for j in range(widths[i]):
+            G.nodes[cnt]["compute"] = compute[i][j]
+            cnt += 1
+
+    total_operator = sum(widths)
+    G.nodes[0]["compute"] = 0
+    G.nodes[total_operator + 1]["compute"] = 0
+
+    for e in G.edges:
+        G.edges[e]['bytes'] = byte[e]
+
+    return delay, bw, speed, G
+
 
 def visualize_dag(G, widths, height):
     pos = {}
