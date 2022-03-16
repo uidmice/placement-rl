@@ -1,6 +1,8 @@
 import networkx as nx
 import numpy as np
+import matplotlib.pyplot as plt
 import pickle
+import os
 
 def get_mapped_node(map, i):
     return np.where(map[i] == 1)[0][0]
@@ -72,7 +74,6 @@ def generate_program(n_operators, n_devices, seed, B=1000, l=100):
 # seed: random seed
 def graph_dag_structure(v,
                       alpha,
-                      out_degree,
                       seed,
                       save_path = None,
                       visualize = False):
@@ -86,7 +87,6 @@ def graph_dag_structure(v,
 
     for i in range(height):
         widths.append(int(np.ceil(np.random.uniform(0, 2 * width_mean))))
-
 
     total_operator = sum(widths)
 
@@ -131,14 +131,14 @@ def graph_dag_structure(v,
         for node in layer:
             if i != 0:
                 if G.in_degree(node) == 0:
-                    choice = np.random.choice(nodes[i - 11])
+                    choice = np.random.choice(nodes[i - 1])
                     G.add_edge(choice, node)
 
     if visualize:
         visualize_dag(G, widths, height)
     if save_path:
-        graph_path = save_path + "dag_structure_{}_seed_{}.pkl".format(v,seed)
-        params_path = save_path + "dag_params_{}_seed_{}.pkl".format(v, seed)
+        graph_path = os.path.join(save_path,"dag_structure_{}_seed_{}_v_{}_alpha_{}.pkl".format(v,seed,v,alpha))
+        params_path = os.path.join(save_path, "dag_params_{}_seed_{}_v_{}_alpha_{}.pkl".format(v, seed,v,alpha))
         params = {"widths": widths,
                   "height": height}
         save_dag(graph_path, G)
@@ -210,6 +210,88 @@ def generate_dag_weight_for_heterogeneous_devices(graph_path,
         to_pickle(weight_path, res)
     return comps, comms
 
+
+def generate_weights_for_heterogeneous_devices(graph_path,
+                                               params_path,
+                                               v,
+                                               ccr,
+                                               seed,
+                                               beta,
+                                               n_devices,
+                                               avg_comm=1000,
+                                               avg_speed=3,
+                                               avg_bw=200,
+                                               avg_delay=10,
+                                               save_path=None):
+    np.random.seed(seed)
+
+    G = load_dag(graph_path)
+    widths, height = load_dag_params(params_path)
+
+    avg_comm = np.random.normal(loc=avg_comm, scale=avg_comm / 3)
+    avg_comp = avg_comm / ccr
+
+    # Copmutation cost for each dag node on each device
+    # Structure: list[list[list]]
+    comps = [[] for i in range(height)]
+
+    for i in range(height):
+        for j in range(widths[i]):
+            node_mean = np.random.uniform(0, 2 * avg_comp)
+            tmp = []
+            for device in range(n_devices):
+                tmp.append(np.random.uniform(node_mean * (1 - beta / 2), node_mean * (1 + beta / 2)))
+            comps[i].append(tmp)
+
+    # Communication cost for each dag edge
+    # Structure: dict, key: edge -> cost
+    comms = {}
+    for edge in G.edges:
+        comms[edge] = np.random.uniform(0, 2 * avg_comm)
+
+    # Delay for each device
+    delay = np.random.uniform(0, 2 * avg_delay, n_devices)
+
+    # bw for each device
+    bw = np.random.uniform(0, 2 * avg_bw, n_devices)
+
+    # speed for each device
+    speed = np.random.uniform(0, 2 * avg_speed, n_devices)
+
+    # Computational amount for each dag node.
+    compute = [[] for i in range(height)]
+    for i in range(height):
+        for j in range(widths[i]):
+            accum_compute = 0
+            for k in range(n_devices):
+                accum_compute += comps[i][j][k] * speed[k]
+            avg_compute = accum_compute / n_devices
+            compute[i].append(avg_compute)
+            assert (compute[i][j] > 0, "Compute should be large than 0")
+
+    # Communicational bytes for each dag link
+    byte = {}
+    for edge in G.edges:
+        byte[edge] = (comms[edge] - avg_delay) * avg_bw
+        if byte[edge] < 0:
+            byte[edge] = 1
+        assert (byte[edge] > 0), "Bytes should be large than 0"
+
+    if save_path:
+        weight_path = os.path.join(save_path,
+                                   "weights_heterogeneous_v_{}_seed_{}_ccr_{}_beta_{}_ndevices_{}.pkl".format(v, seed,
+                                                                                                              ccr, beta,
+                                                                                                              n_devices))
+        res = {"comps": comps,
+               "comms": comms,
+               "delay": delay,
+               "bw": bw,
+               "speed": speed,
+               "compute": compute,
+               "byte": byte}
+        to_pickle(weight_path, res)
+
+
 def load_graph_with_weights(graph_path, weight_path, params_path):
     G  = load_dag(graph_path)
     comms, comps = load_weights(weight_path)
@@ -244,11 +326,12 @@ def load_dag_params(path):
     return widths, height
 
 def save_dag(save_path, G):
-    pickle.dump(G, open(save_path, 'w'))
+    # pickle.dump(G, open(save_path, 'wb'))
+    nx.write_gpickle(G, save_path)
     return
 
 def load_dag(path):
-    G = pickle.load(open(path))
+    G = nx.read_gpickle(path)
     return G
 
 def visualize_dag(G, widths, height):
@@ -258,6 +341,8 @@ def visualize_dag(G, widths, height):
 
     height_incr = 2 / (max_height + 1)
     width_incr = 2 / max_width
+
+    total_operator = sum(widths)
 
     pos[0] = np.array([-1, -1])
     pos[total_operator + 1] = np.array([1, -1])
