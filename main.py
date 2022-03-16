@@ -19,7 +19,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 n_devices = 30
 n_operators = 20
-seed = 0
+seed = 1
 network = StarNetwork(*generate_network(n_devices, seed=seed))
 DAG, constraints = generate_program(n_operators, n_devices, seed=seed)
 program = Program(DAG, constraints)
@@ -172,10 +172,12 @@ for j in range(len(noises)):
 
     x = j //2
     y = j % 2
-    axs[x, y].plot(range(num_iter+1), np.average(np.array(lat_records), axis=0), label = "GNN+RL - best".format(num_epo), color='blue', linewidth=2)
+    axs[x, y].plot(range(num_iter+1), np.average(np.array(lat_records), axis=0), label = "GNN+RL - average", color='blue', linewidth=2)
+    axs[x, y].plot(range(num_iter+1), lat_records[best_records], label = "GNN+RL - best", color='tab:blue', linewidth=2)
     axs[x, y].fill_between(range(num_iter+1), np.average(np.array(lat_records), axis=0) + np.std(np.array(lat_records), axis=0), np.average(np.array(lat_records), axis=0) - np.std(np.array(lat_records), axis=0), alpha=.25, color='blue')
 
-    axs[x, y].plot(range(num_iter+1), np.average(np.array(random_traces), axis=0), label=f'Random Op Selection - best', color='orange', linewidth=2)
+    axs[x, y].plot(range(num_iter+1), np.average(np.array(random_traces), axis=0), label=f'Random Op Selection - average', color='orange', linewidth=2)
+    axs[x, y].plot(range(num_iter+1), random_trace_best, label = f'Random Op Selection - best', color='gold', linewidth=2)
     axs[x, y].fill_between(range(num_iter+1), np.average(np.array(random_traces), axis=0) + np.std(np.array(random_traces), axis=0), np.average(np.array(random_traces), axis=0) - np.std(np.array(random_traces), axis=0), alpha=.25, color='orange')
 
     axs[x, y].plot(range(num_iter+1), torch.ones(num_iter+1) * sample_latency, label=f'Best Sample', color='green', linewidth=2)
