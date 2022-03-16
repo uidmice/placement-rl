@@ -73,9 +73,19 @@ class PlacementEnv:
     def get_edge_feature_dim(self):
         return self.program.get_edge_feature_dim() + self.network.get_edge_feature_dim()
 
-    def evaluate (self, mapping, noise=0):
+    def evaluate (self, mapping, noise=0, repeat=100, return_values=False):
         mapping = from_mapping_to_matrix(mapping, self.n_devices)
-        return evaluate(mapping, self.program, self.network, noise)
+        l, path = evaluate(mapping, self.program, self.network, noise)
+        s = 0
+        a = np.ones(repeat) * l
+        if noise:
+            for i in range(repeat):
+                a[i], path = evaluate(mapping, self.program, self.network, noise)
+            l = np.average(a)
+            s = np.std(a)
+        if return_values:
+            return l, path, a
+        return l, path
 
     # def get_feature_device(self, node, device):
     #     feature_parent = np.zeros(self.network.get_edge_feature_dim())

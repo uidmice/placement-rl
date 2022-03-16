@@ -82,7 +82,7 @@ class OpNet(nn.Module):
 
     def forward(self,  g):
         hf = self.fmp(g, False)
-        hb = self.fmp(g, True)
+        hb = self.bmp(g, True)
         return torch.cat([hf, hb], dim=1)
 
 
