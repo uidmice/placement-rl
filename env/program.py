@@ -8,16 +8,16 @@ class Program:
         self.P = P
         self.n_operators = self.P.number_of_nodes()
 
-        self.op_feature = torch.reshape(torch.tensor([P.nodes[i]['compute'] for i in range(self.n_operators)]), (self.n_operators, 1))
-        self.op_feature_norm = (self.op_feature - torch.mean(self.op_feature)) / torch.std(self.op_feature)
+        self.op_compute = torch.tensor([P.nodes[i]['compute'] for i in range(self.n_operators)])
+        # self.op_feature_norm = (self.op_feature - torch.mean(self.op_feature)) / torch.std(self.op_feature)
 
-        self.data_feature = torch.zeros((self.n_operators, self.n_operators))
+        self.data_bytes = torch.zeros((self.n_operators, self.n_operators))
         for e in self.P.edges:
-            self.data_feature[e] = self.P.edges[e]['bytes']
-        self.data_feature_norm = (self.data_feature - torch.mean(self.data_feature))/torch.std(self.data_feature)
-
-        self.data_feature = torch.stack([torch.ones(self.n_operators, self.n_operators), self.data_feature], dim=2)
-        self.data_feature_norm = torch.stack([torch.ones(self.n_operators, self.n_operators), self.data_feature_norm], dim=2)
+            self.data_bytes[e] = self.P.edges[e]['bytes']
+        # self.data_feature_norm = (self.data_feature - torch.mean(self.data_feature))/torch.std(self.data_feature)
+        #
+        # self.data_feature = torch.stack([torch.ones(self.n_operators, self.n_operators), self.data_feature], dim=2)
+        # self.data_feature_norm = torch.stack([torch.ones(self.n_operators, self.n_operators), self.data_feature_norm], dim=2)
 
 
         self.placement_constraints = constraints
@@ -25,6 +25,18 @@ class Program:
         self.pinned = [self.placement_constraints[0][0], self.placement_constraints[self.n_operators-1][0]]
 
         self.init_criticality()
+
+        self.op_parents = [list(self.P.predecessors(n)) for n in range(self.n_operators)]
+        self.op_children = [list(self.P.successors(n)) for n in range(self.n_operators)]
+        self.op_parallel = []
+        for n in range(self.n_operators):
+            parallel_group = []
+            for m in range(self.n_operators):
+                if m == n:
+                    continue
+                if not nx.has_path(self.P, n, m) and not nx.has_path(self.P,  m, n):
+                    parallel_group.append(m)
+            self.op_parallel.append(parallel_group)
 
     def random_mapping(self):
         mapping = [np.random.choice(self.placement_constraints[i]) for i in range(self.n_operators)]
@@ -85,17 +97,17 @@ class Program:
                         self.P.edges[e]['criticality'] += step_size * (1-self.P.edges[e]['criticality'])
         self.populate_criticality()
 
-    def get_node_feature(self, node):
-        return self.op_feature_norm[node]
+    def get_node_compute(self, node):
+        return self.op_compute[node]
 
-    def get_node_feature_dim(self):
-        return self.op_feature_norm.shape[1]
+    # def get_node_feature_dim(self):
+    #     return len(Program.NODE_FEATURES)
 
-    def get_edge_feature(self, node1, node2):
-        return torch.squeeze(self.data_feature_norm[node1, node2])
+    def get_data_bytes(self, node1, node2):
+        return self.data_bytes[node1, node2]
 
-    def get_edge_feature_dim(self):
-        return self.data_feature_norm.shape[2]
+    # def get_edge_feature_dim(self):
+    #     return len(Program.EDGE_FEATURES)
 
     def get_relative_criticality(self, node1, node2):
         if nx.has_path(self.P, node1, node2):

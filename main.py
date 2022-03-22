@@ -7,6 +7,7 @@ from baseline import exhaustive, random_placement, heft, random_op_greedy_dev
 from env.utils import generate_program, generate_network
 from env.network import StarNetwork
 from env.program import Program
+from env.latency import evaluate
 
 from placement_rl.placement_env import PlacementEnv
 from placement_rl.placement_agent import PlacementAgent
@@ -17,13 +18,13 @@ import pickle
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-n_devices = 30
-n_operators = 20
+n_devices = 10
+n_operators = 10
 seed = 1
 network = StarNetwork(*generate_network(n_devices, seed=seed))
 DAG, constraints = generate_program(n_operators, n_devices, seed=seed)
 program = Program(DAG, constraints)
-env = PlacementEnv(network, program)
+env = PlacementEnv([network], [program])
 agent = PlacementAgent(env.get_node_feature_dim(),
                        env.get_edge_feature_dim(),
                        10, 10)
@@ -44,11 +45,10 @@ def train(env,
           agent,
           init_mapping,
           episodes,
-          place_once=True,
           max_iter=50,
           update_op_net=True,
           update_dev_net=True,
-          greedy_dev_selection=False,
+          greedy_dev_selection=True,
           use_baseline=True,
           noise=0,
           early_stop = 5):
@@ -58,39 +58,40 @@ def train(env,
     lat_records = []
     act_records = []
 
-    mask_dev = torch.zeros(env.n_devices).to(device)
+    program = env.programs[0]
+    network = env.networks[0]
+
+    mask_dev = torch.zeros(network.n_devices).to(device)
 
     currrent_stop_iter = early_stop
 
-    if place_once:
-        max_iter = env.n_operators - 2
+
 
     for i in range(episodes):
         cur_mapping = init_mapping.copy()
-        last_latency, _ = env.evaluate(init_mapping, noise)
+        last_latency = env.evaluate(0, 0, init_mapping, noise)
+
 
         print(f'=== Episode {i} ===')
         latencies = [last_latency]
         actions = []
         ep_reward = 0
 
-        mask_op = torch.ones(env.n_operators).to(device)
+        mask_op = torch.ones(program.n_operators).to(device)
         mask_op[0] = mask_op[-1] = 0
 
         for t in range(currrent_stop_iter):
             graphs = []
             temp_mapping = cur_mapping.copy()
-            g = env.get_placement_graph(temp_mapping).to(device)
+            g = env.get_placement_graph(0, 0, temp_mapping).to(device)
             s = agent.op_selection(g, mask_op)
-            if place_once:
-                mask_op[s] = 0
 
             if greedy_dev_selection:
-                action = agent.dev_selection_greedy(cur_mapping, s, env.program.placement_constraints[s], env, noise)
+                action = agent.dev_selection_greedy(program, network, cur_mapping, s, program.placement_constraints[s], noise)
                 action = random.choice(action)
             else:
-                parallel = env.op_parallel[s]
-                constraints = env.program.placement_constraints[s]
+                parallel = program.op_parallel[s]
+                constraints = program.placement_constraints[s]
                 mask_dev[:] = 0
                 mask_dev[constraints] = 1
                 for d in range(n_devices):
@@ -100,7 +101,7 @@ def train(env,
                 action = agent.dev_selection(graphs, s, parallel, mask=mask_dev)
 
             cur_mapping[s] = action
-            latency, _ = env.evaluate(cur_mapping, noise)
+            latency = env.evaluate(0, 0, cur_mapping, noise)
             # reward = -latency/10
             # reward = -np.sqrt(latency)/10
             reward = (last_latency - latency)/10
@@ -137,19 +138,19 @@ def train(env,
 
 
 fig, axs = plt.subplots(2, 2, sharey=True, sharex=True)
-noises = [0, 5, 10, 20]
+noises = [0]
 for j in range(len(noises)):
     noise = noises[j]
 
     #calculating baselines
 
     # random samples
-    sample_map, sample_latency, sample_latencies = random_placement(env, num_iter * 3, noise)
-    print(f"Random Sample:\t\t\t {sample_latency:.2f}, mapping: {sample_map}, evaluate latency: {env.evaluate(sample_map, noise)}")
+    sample_map, sample_latency, sample_latencies = random_placement(program, network, num_iter * 3, noise)
+    print(f"Random Sample:\t\t\t {sample_latency:.2f}, mapping: {sample_map}, evaluate latency: {evaluate(sample_map, program, network, noise):.2f}")
 
     # HEFT
-    heft_map, heft_lat = heft(env, noise)
-    print(f"HEFT:\t\t\t\t\t {heft_lat:.2f}, mapping: {heft_map}, evaluate latency: {env.evaluate(heft_map, noise)}")
+    heft_map, heft_lat = heft(program, network, noise)
+    print(f"HEFT:\t\t\t\t\t {heft_lat:.2f}, mapping: {heft_map}, evaluate latency: {evaluate(heft_map, program, network, noise):.2f}")
 
     # Random Op Selection
     random_traces = []
@@ -157,18 +158,18 @@ for j in range(len(noises)):
     random_map_best = None
     random_trace_best = None
     for i in range(num_epo):
-        random_mapping, random_latency, random_latency_trace = random_op_greedy_dev(env, mapping, num_iter, noise)
+        random_mapping, random_latency, random_latency_trace = random_op_greedy_dev(program, network, mapping, num_iter, noise)
         random_traces.append(random_latency_trace)
         if random_latency < random_lat_best:
             random_lat_best = random_latency
             random_map_best = random_mapping
             random_trace_best = random_latency_trace
-    print(f"Random Op Selection:\t {random_lat_best:.2f}, mapping: {random_map_best}, evaluate latency: {env.evaluate(random_map_best, noise)}")
+    print(f"Random Op Selection:\t {random_lat_best:.2f}, mapping: {random_map_best}, evaluate latency: {evaluate(random_map_best, program, network, noise):.2f}")
 
-    rewards, lat_records, action_records, map_records = train(env, agent, mapping, num_epo,  place_once=False, max_iter=num_iter, update_op_net=True, update_dev_net=False, greedy_dev_selection=True, use_baseline=True, noise=noise)
+    rewards, lat_records, action_records, map_records = train(env, agent, mapping, num_epo,  max_iter=num_iter, update_op_net=True, update_dev_net=False, greedy_dev_selection=True, use_baseline=True, noise=noise)
     best_records = np.argmin([lat[-1] for lat in lat_records])
 
-    print(f"GNN+RL:\t\t\t\t\t {lat_records[best_records][-1]:.2f}, mapping: {map_records[best_records+1]}, evaluate latency: {env.evaluate(map_records[best_records+1], noise)}")
+    print(f"GNN+RL:\t\t\t\t\t {lat_records[best_records][-1]:.2f}, mapping: {map_records[best_records+1]}, evaluate latency: {evaluate(map_records[best_records+1], program, network, noise):.2f}")
 
     x = j //2
     y = j % 2

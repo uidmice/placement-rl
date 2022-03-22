@@ -1,30 +1,26 @@
 import torch
 import networkx as nx
+from collections import namedtuple
 import simpy
 from env.utils import *
 
 def computation_latency(program, network, op, dev, noise=0):
-    a = program.op_feature[op]
-    b = network.dev_feature[dev]
-    if not a.shape:
-        r = a * b
-    else:
-        r = torch.dot(a.double(), b.double())
+    a = program.op_compute[op]
+    b = network.comp_rate[dev]
+    r = a * b
     return max(torch.tensor(0).float(), torch.normal(mean = r, std=noise))
 
 def all_computation_latency(program, network, noise=0):
-    return program.op_feature @ torch.t(network.dev_feature) + torch.normal(std=noise, size=(program.n_operators, network.n_devices))
+    return program.op_compute @ torch.t(network.comp_rate) + torch.normal(std=noise, size=(program.n_operators, network.n_devices))
 
 
 def communication_latency(program, network, op1, op2, dev1, dev2, noise=0.0):
     if dev1 == dev2:
         return 0
-    a = program.data_feature[op1, op2]
-    b = network.net_feature[dev1, dev2]
-    if not a.shape:
-        r = a * b
-    else:
-        r = torch.dot(a.double(), b.double())
+    a = program.data_bytes[op1, op2]
+    b = network.comm_delay[dev1, dev2]
+    r = network.comm_rate[dev1, dev2]
+    r = b + a * r
     return max(torch.tensor(0).float(), torch.normal(mean = r, std=noise))
 
 
@@ -57,114 +53,97 @@ def communication_latency(program, network, op1, op2, dev1, dev2, noise=0.0):
 #         n = program.P.nodes[n]['critical']
 #     critical_path.reverse()
 #     return latency, critical_path
-class op:
-    def __init__(self, env, inputs, outputs, comp_time, resource):
-        # inputs: dict of in-egde comm event {e: event}
-        # outputs: dict of out-edge comm event {event: out_comm_time}
-        self.env = env
-        self.inputs = inputs
-        self.outputs = outputs
-        self.comp_time = comp_time
-        self.resource = resource
 
 
-    def run(self, o, des, record):
-        times = (yield simpy.events.AllOf(self.env, self.inputs.values())).values()
-        times = [A.item() for A in times]
-        # print(f"{self.env.now: .2f}: Op {o} --> Dev {des} got all inputs at {times}")
-        with self.resource.request() as req:  # Generate a request event
-            yield req                    # Wait for access
-            yield self.env.timeout(self.comp_time)
-        # print(f"{self.env.now: .2f}: Op {o} --> Dev {des} finished. Running {self.comp_time: .2f}")
-
-        self.outputs.succeed()
-        times = dict(zip(self.inputs.keys(), times))
-        if len(times) > 0 :
-            record[o] = max(times, key=times.get)[0]
-        # for e, t in self.outputs.items():
-        #     print(f"{self.env.now}: Op {o} sending for {t}")
-        #     yield self.env.timeout(t)
-        #     e.succeed(value = self.env.now )
-        #
-        # return max(times, key=times.get)
+def simulate (mapping, program, network, noise=0, repeat=1):
+    if not isinstance(mapping, list):
+        map = from_matrix_to_mapping(mapping)
+    else:
+        map = mapping
 
 
-def evaluate(mapping, program, network, noise=0):
-    env = simpy.Environment()
-    map = from_matrix_to_mapping(mapping)
+    G = nx.DiGraph()
+    G.add_edges_from(program.P.edges)
+    nx.set_node_attributes(G, {i: {'start_time': [], 'end_time': [], 'comp_time': [] } for i in G.nodes})
+    nx.set_edge_attributes(G, {i: {'arrive_time': [], 'comm_time': []} for i in G.edges})
 
-    devices = {d: simpy.Resource(env) for d in list(set(map))}
+    Op = namedtuple('Op', 'id inputs outputs comp_time dev')
 
-    def send_output(finish_event, e1, e2, time):
+
+    def communicate(env, finish_event, e, time):
         # print(f"{env.now: .2f}: Op {e1} --> Op {e2} for {time}")
         yield finish_event
         yield env.timeout(time)
+        G.edges[e]['arrive_time'].append(env.now)
+        G.edges[e]['comm_time'].append(time)
         return env.now
 
-    comm_events = {}
-    comm_time = {}
-    finish_event = {}
+    def compute(env, op, critical_path_record):
+        times = (yield simpy.events.AllOf(env, op.inputs.values())).values()
+        times = [A.item() for A in times]
+        times = dict(zip(op.inputs.keys(), times))
+        if len(times):
+            critical_path_record[op.id] = max(times, key=times.get)[0]
 
-    for o in program.P.nodes:
-        finish_event[o] = env.event()
+        with op.dev.request() as req:  # Generate a request event
+            yield req                    # Wait for access
+            G.nodes[op.id]['start_time'].append(env.now)
+            yield env.timeout(op.comp_time)
+            G.nodes[op.id]['end_time'].append(env.now)
+            G.nodes[op.id]['comp_time'].append(op.comp_time)
+        # print(f"{self.env.now: .2f}: Op {o} --> Dev {des} finished. Running {self.comp_time: .2f}")
 
-    for e in program.P.edges:
-        d1 = map[e[0]]
-        d2 = map[e[1]]
-        comm_time[e] = communication_latency(program, network, e[0], e[1], d1, d2, noise)
-        comm_events[e] = env.process(send_output(finish_event[e[0]], e[0], e[1], comm_time[e]))
+        op.outputs.succeed()
 
-    ops = {}
-    processes = {}
-    record = {}
-    for o in program.P.nodes:
-        inputs = {e: comm_events[e] for e in program.P.in_edges(o)}
-        outputs = finish_event[o]
-        des = map[o]
-        ops[o] = op(env, inputs, outputs, computation_latency(program, network, o, des, noise), devices[des])
-        processes[o] = env.process(ops[o].run(o, des, record))
+    times = []
+    paths = []
+    for i in range(repeat):
+        env = simpy.Environment()
+        comm_events = {}
+        finish_event = {}
 
-    while env.peek() < float('inf'):
-        env.step()
+        for o in program.P.nodes:
+            finish_event[o] = env.event()
 
-    c, p = list(record.items())[-1]
-    critical_path = [p, c]
-    while p in record:
-        p = record[p]
-        critical_path.insert(0, p)
-    return env.now, critical_path
+        for e in program.P.edges:
+            d1 = map[e[0]]
+            d2 = map[e[1]]
+            comm_events[e] = env.process(communicate(env, finish_event[e[0]], e, communication_latency(program, network, e[0], e[1], d1, d2, noise)))
 
-
-
+        ops = {}
+        processes = {}
+        record = {}
+        devices = {d: simpy.Resource(env) for d in list(set(map))}
 
 
-# def evaluate(mapping, program, network):
-#     for o in program.P.nodes:
-#         des = get_mapped_node(mapping, o)
-#         program.P.nodes[o]['c'] = computation_latency(program, network, o, des)
-#
-#     for e in program.P.edges:
-#         d1 = get_mapped_node(mapping, e[0])
-#         d2 = get_mapped_node(mapping, e[1])
-#         program.P.edges[e]['c'] = communication_latency(program, network, e[0], e[1], d1, d2)
-#
-#     for o in program.P.nodes:
-#         if program.P.in_degree(o) == 0:
-#             for e in program.P.out_edges(o):
-#                 program.P.edges[e]['c'] += program.P.nodes[o]['c']
-#             continue
-#         if program.P.out_degree(o) == 0:
-#             for e in program.P.in_edges(o):
-#                 program.P.edges[e]['c'] += program.P.nodes[o]['c']
-#             continue
-#         for e in program.P.in_edges(o):
-#             program.P.edges[e]['c'] += program.P.nodes[o]['c'] / 2
-#         for e in program.P.out_edges(o):
-#             program.P.edges[e]['c'] += program.P.nodes[o]['c'] / 2
-#
-#     critical_path = nx.dag_longest_path(program.P, 'c')
-#     latency = 0
-#     for i in range(len(critical_path) - 1):
-#         latency += program.P.edges[critical_path[i], critical_path[i + 1]]['c']
-#
-#     return latency, critical_path
+        for o in program.P.nodes:
+            inputs = {e: comm_events[e] for e in program.P.in_edges(o)}
+            outputs = finish_event[o]
+            des = map[o]
+            ops[o] = Op(o, inputs, outputs, computation_latency(program, network, o, des, noise), devices[des])
+            processes[o] = env.process(compute(env, ops[o], record))
+
+        while env.peek() < float('inf'):
+            env.step()
+
+        c, p = list(record.items())[-1]
+        critical_path = [p, c]
+        while p in record:
+            p = record[p]
+            critical_path.insert(0, p)
+        times.append(env.now)
+        paths.append(critical_path)
+    if repeat == 1:
+        return G, times[0], paths[0]
+    return G, times,  paths
+
+def evaluate(mapping, program, network, noise=0, repeat=1, return_stats=False):
+    G, l, path = simulate(mapping, program, network, noise, repeat)
+    if return_stats:
+        return l, path, G
+    try:
+        average_l = np.mean(l)
+    except:
+        average_l = l
+    return average_l
+

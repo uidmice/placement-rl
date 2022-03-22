@@ -5,87 +5,121 @@ import torch
 from env.latency import *
 
 class PlacementEnv:
-    def __init__(self, network, program, seed=0):
+    NODE_FEATURES = ['compute', 'comp_rate']
+    EDGE_FEATURES = ['bytes', 'comm_delay', 'comm_rate']
+    def __init__(self, networks: list, programs: list, seed=0):
 
-        self.network = network
-        self.program = program
+        self.networks = networks
+        self.programs = programs
 
-        self.graph = self.program.P
-
-        self.n_operators = self.program.n_operators
-        self.n_devices = self.network.n_devices
-
-        self.op_features = torch.Tensor([self.program.get_node_feature(i) for i in range(self.n_operators)]).view(self.n_operators, -1)
-        self.dev_features = torch.Tensor([self.network.get_node_feature(i) for i in range(self.n_devices)]).view(self.n_devices, -1)
+        # self.graph = self.program.P
+        #
+        # self.n_operators = self.program.n_operators
+        # self.n_devices = self.network.n_devices
+        #
+        # self.op_features = torch.Tensor([self.program.get_node_compute(i) for i in range(self.n_operators)]).view(self.n_operators, -1)
+        # self.dev_features = torch.Tensor([self.network.get_node_compute(i) for i in range(self.n_devices)]).view(self.n_devices, -1)
 
         self.seed = seed
 
-        self.op_parents = [list(self.graph.predecessors(n)) for n in range(self.n_operators)]
-        self.op_children = [list(self.graph.successors(n)) for n in range(self.n_operators)]
-        self.op_parallel = []
-        for n in range(self.n_operators):
-            parallel_group = []
-            for m in range(self.n_operators):
-                if m == n:
-                    continue
-                if not nx.has_path(self.graph, n, m) and not nx.has_path(self.graph,  m, n):
-                    parallel_group.append(m)
-            self.op_parallel.append(parallel_group)
 
+    def get_parents(self, program_id, node, mapping):
+        try:
+            program = self.programs[program_id]
+        except:
+            print(f'Program id {program_id} not valid')
+            return
 
-    def get_parents(self, node, mapping):
-        device_set = [mapping[n] for n in self.op_parents[node]]
-        return self.op_parents[node], device_set
+        device_set = [mapping[n] for n in program.op_parents[node]]
+        return program.op_parents[node], device_set
 
-    def get_children(self, node, mapping):
-        device_set = [mapping[n] for n in self.op_children[node]]
-        return self.op_children[node], device_set
+    def get_children(self, program_id, node, mapping):
+        try:
+            program = self.programs[program_id]
+        except:
+            print(f'Program id {program_id} not valid')
+            return
+        device_set = [mapping[n] for n in program.op_children[node]]
+        return program.op_children[node], device_set
 
-    def get_parallel(self, node, mapping):
-        device_set = [mapping[n] for n in self.op_parallel[node]]
-        return self.op_parallel[node], device_set
+    def get_parallel(self, program_id, node, mapping):
+        try:
+            program = self.programs[program_id]
+        except:
+            print(f'Program id {program_id} not valid')
+            return
+        device_set = [mapping[n] for n in program.op_parallel[node]]
+        return program.op_parallel[node], device_set
 
-    def get_placement_graph(self, mapping):
-        node_feature = torch.cat([self.op_features, self.dev_features[mapping]], dim=1)
-        u = torch.zeros(self.graph.number_of_edges()).int()
-        v = torch.zeros(self.graph.number_of_edges()).int()
-        edge_feature = torch.zeros((self.graph.number_of_edges(),
-                                    self.program.get_edge_feature_dim()+self.network.get_edge_feature_dim()))
-        idx = 0
+    def get_node_feature(self, program_id, network_id, mapping):
+        try:
+            program = self.programs[program_id]
+        except:
+            print(f'Program id {program_id} not valid')
+            return
+        try:
+            network = self.networks[network_id]
+        except:
+            print(f'Network id {network_id} not valid')
+            return
 
-        for line in nx.generate_edgelist(self.graph, data=False):
-            (e1, e2) = [int(s) for s in line.split(' ')]
-            u[idx] = e1
-            v[idx] = e2
-            h1 = self.program.get_edge_feature(e1, e2)
-            h2 = self.network.get_edge_feature(mapping[e1], mapping[e2])
-            edge_feature[idx] = torch.cat((h1, h2))
-            idx += 1
-
-        g = dgl.graph((u, v))
-        g.edata['x'] = edge_feature
-        g.ndata['x'] = node_feature
-        return g
+        return {'compute': program.op_compute, 'rate': network.comp_rate[mapping]}
 
     def get_node_feature_dim(self):
-        return self.program.get_node_feature_dim() + self.network.get_node_feature_dim()
+        return len(PlacementEnv.NODE_FEATURES)
 
     def get_edge_feature_dim(self):
-        return self.program.get_edge_feature_dim() + self.network.get_edge_feature_dim()
+        return len(PlacementEnv.EDGE_FEATURES)
 
-    def evaluate (self, mapping, noise=0, repeat=100, return_values=False):
-        mapping = from_mapping_to_matrix(mapping, self.n_devices)
-        l, path = evaluate(mapping, self.program, self.network, noise)
-        s = 0
-        a = np.ones(repeat) * l
-        if noise:
-            for i in range(repeat):
-                a[i], path = evaluate(mapping, self.program, self.network, noise)
-            l = np.average(a)
-            s = np.std(a)
-        if return_values:
-            return l, path, a
-        return l, path
+    def get_edge_feature(self, program_id, network_id, mapping):
+        try:
+            program = self.programs[program_id]
+        except:
+            print(f'Program id {program_id} not valid')
+            return
+        try:
+            network = self.networks[network_id]
+        except:
+            print(f'Network id {network_id} not valid')
+            return
+
+        n = program.P.number_of_edges()
+        u = torch.zeros(n).int()
+        v = torch.zeros(n).int()
+        bytes = torch.zeros(n)
+        comm_delay = torch.zeros(n)
+        comm_rate = torch.zeros(n)
+
+        for i, line in enumerate(nx.generate_edgelist(program.P, data=False)):
+            (e1, e2) = [int(s) for s in line.split(' ')]
+            u[i] = e1
+            v[i] = e2
+            bytes[i] = program.get_data_bytes(e1, e2)
+            comm_delay[i] = network.comm_delay[mapping[e1], mapping[e2]]
+            comm_rate[i] = network.comm_rate[mapping[e1], mapping[e2]]
+        return u, v, {'bytes': bytes, 'comm_delay': comm_delay, 'comm_rate': comm_rate}
+
+    def get_placement_graph(self, program_id, network_id, mapping):
+        node_features = self.get_node_feature(program_id, network_id, mapping)
+        u, v, edge_features = self.get_edge_feature(program_id, network_id, mapping)
+
+        g = dgl.graph((u, v))
+        g.edata['x'] = torch.t(torch.stack(list(edge_features.values()))).float()
+        g.ndata['x'] = torch.t(torch.stack(list(node_features.values()))).float()
+        return g
+
+    def evaluate(self, program_id, network_id, mapping, noise=0, repeat=1, return_stats=False):
+        program = self.programs[program_id]
+        network = self.networks[network_id]
+
+        G, l, path = simulate(mapping, program, network, noise, repeat)
+        if return_stats:
+            return l, path, G
+        try:
+            average_l = np.mean(l)
+        except:
+            average_l = l
+        return average_l
 
     # def get_feature_device(self, node, device):
     #     feature_parent = np.zeros(self.network.get_edge_feature_dim())

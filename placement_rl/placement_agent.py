@@ -6,7 +6,7 @@ import dgl
 
 from placement_rl.gnn import OpNet, DevNet
 from placement_rl.rl_agent import SoftmaxActor
-
+from env.latency import evaluate
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 epsilon = 1e-6
@@ -72,17 +72,16 @@ class PlacementAgent:
         self.dev_log_probs.append(m.log_prob(action))
         return action.item()
 
-    def dev_selection_greedy(self, map:list, op, options, env, noise=0):
+    def dev_selection_greedy(self, program, network, map:list, op, options, noise=0):
         lat = {}
-        mapping = map.copy()
         for d in options:
-            mapping[op]=d
-            latency, _ = env.evaluate(mapping, noise)
+            map[op]=d
+            latency = evaluate(map, program, network, noise)
             lat[d] = latency
         best = min(lat.values())
         return [d for d in options if lat[d]==best]
 
-    def finish_episode(self, update_op_network=True, update_dev_network=True, use_baseline=True):
+    def finish_episode(self, update_op_network=True, update_dev_network=True, use_baseline=True, update_criticality=True):
         R = 0
         op_policy_loss = 0
         dev_policy_loss = 0

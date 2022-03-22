@@ -5,34 +5,32 @@ from env.latency import evaluate, computation_latency, communication_latency
 from heft.core import schedule
 
 
-def random_placement(env, number_mappings=100, noise=0):
+def random_placement(program, network, number_mappings=100, noise=0):
     latencies = np.zeros(number_mappings)
     min_lat = np.Inf
 
     for i in range(number_mappings):
-        mapping = [np.random.choice(env.program.placement_constraints[i]) for i in range(env.program.n_operators)]
-        latencies[i], _ = env.evaluate(mapping, noise)
+        mapping = [np.random.choice(program.placement_constraints[i]) for i in range(program.n_operators)]
+        latencies[i] = evaluate(mapping, program, network, noise)
         if latencies[i] < min_lat:
             min_lat = latencies[i]
             map = mapping
     return map, min_lat, latencies
 
-def heft(env, noise=0):
-    program, network = env.program, env.network
+def heft(program, network, noise=0):
     dag = {}
     for n in program.P.nodes:
         dag[n] = list(program.P.neighbors(n))
 
-    compcost = lambda op, dev: computation_latency(program, network, op, dev, noise)
-    commcost = lambda op1, op2, d1, d2: communication_latency(program, network, op1, op2, d1, d2, noise)
+    compcost = lambda op, dev: computation_latency(program, network, op, dev)
+    commcost = lambda op1, op2, d1, d2: communication_latency(program, network, op1, op2, d1, d2)
     orders, jobson = schedule(dag, program.placement_constraints, compcost, commcost)
     return [jobson[i] for i in range(program.n_operators)], max(e.end for e in orders[program.pinned[1]])
 
 
-def random_op_greedy_dev(env, init_mapping, iter_num=100, noise=0):
-    program, network = env.program, env.network
-    map = np.copy(init_mapping)
-    last_latency, critical_path = env.evaluate(map, noise)
+def random_op_greedy_dev(program, network, init_mapping, iter_num=50, noise=0):
+    map = init_mapping.copy()
+    last_latency = evaluate(map, program, network, noise)
     latencies = [last_latency]
     for i in range(iter_num):
         o = np.random.choice(program.n_operators)
@@ -40,12 +38,12 @@ def random_op_greedy_dev(env, init_mapping, iter_num=100, noise=0):
         mapping = map.copy()
         for d in program.placement_constraints[o]:
             mapping[o] = d
-            latency, _ = env.evaluate(mapping, noise)
+            latency = evaluate(mapping, program, network, noise)
             lat[d] = latency
         best = min(lat.values())
         map[o] =np.random.choice([d for d in program.placement_constraints[o] if lat[d] == best])
         latencies.append(best)
-    last_latency, critical_path = env.evaluate(map, noise)
+    last_latency = evaluate(map, program, network, noise)
     return map, last_latency, latencies
 
 

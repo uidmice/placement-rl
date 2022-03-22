@@ -146,7 +146,6 @@ def schedule(succ, agents, compcost, commcost):
     jobson = dict()
     for job in reversed(jobs):
         allocate(job, orders, jobson, prec, compcost, commcost, agents)
-
     return orders, jobson
 
 
