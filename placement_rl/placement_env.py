@@ -12,6 +12,21 @@ class PlacementEnv:
         self.networks = networks
         self.programs = programs
 
+        n_devices = [network.n_devices for network in networks]
+        n_operators = [program.n_operators for program in programs]
+
+        self.node_feature_mean = {'compute': torch.mean(torch.cat([p.op_compute for p in programs])),
+                                  'comp_rate': torch.mean(torch.cat([n.comp_rate for n in networks]))}
+        self.node_feature_std = {'compute': torch.std(torch.cat([p.op_compute for p in programs])),
+                                 'comp_rate': torch.std(torch.cat([n.comp_rate for n in networks]))}
+
+        self.edge_feature_mean = {'bytes': torch.mean(torch.cat([torch.flatten(p.data_bytes) for p in programs])),
+                                  'comm_delay': torch.mean(torch.cat([torch.flatten(n.comm_delay) for n in networks])),
+                                  'comm_rate': torch.mean(torch.cat([torch.flatten(n.comm_rate) for n in networks]))}
+
+        self.edge_feature_std = {'bytes': torch.std(torch.cat([torch.flatten(p.data_bytes) for p in programs])),
+                                  'comm_delay': torch.std(torch.cat([torch.flatten(n.comm_delay) for n in networks])),
+                                  'comm_rate': torch.std(torch.cat([torch.flatten(n.comm_rate) for n in networks]))}
         # self.graph = self.program.P
         #
         # self.n_operators = self.program.n_operators
@@ -51,6 +66,12 @@ class PlacementEnv:
         device_set = [mapping[n] for n in program.op_parallel[node]]
         return program.op_parallel[node], device_set
 
+    def get_node_feature_dim(self):
+        return len(PlacementEnv.NODE_FEATURES)
+
+    def get_edge_feature_dim(self):
+        return len(PlacementEnv.EDGE_FEATURES)
+
     def get_node_feature(self, program_id, network_id, mapping):
         try:
             program = self.programs[program_id]
@@ -63,13 +84,10 @@ class PlacementEnv:
             print(f'Network id {network_id} not valid')
             return
 
-        return {'compute': program.op_compute, 'rate': network.comp_rate[mapping]}
-
-    def get_node_feature_dim(self):
-        return len(PlacementEnv.NODE_FEATURES)
-
-    def get_edge_feature_dim(self):
-        return len(PlacementEnv.EDGE_FEATURES)
+        feat = {'compute': program.op_compute, 'comp_rate': network.comp_rate[mapping]}
+        for feature in PlacementEnv.NODE_FEATURES:
+            feat[feature] = (feat[feature] - self.node_feature_mean[feature])/self.node_feature_std[feature]
+        return feat
 
     def get_edge_feature(self, program_id, network_id, mapping):
         try:
@@ -97,7 +115,11 @@ class PlacementEnv:
             bytes[i] = program.get_data_bytes(e1, e2)
             comm_delay[i] = network.comm_delay[mapping[e1], mapping[e2]]
             comm_rate[i] = network.comm_rate[mapping[e1], mapping[e2]]
-        return u, v, {'bytes': bytes, 'comm_delay': comm_delay, 'comm_rate': comm_rate}
+        feat = {'bytes': bytes, 'comm_delay': comm_delay, 'comm_rate': comm_rate}
+        for feature in PlacementEnv.EDGE_FEATURES:
+            feat[feature] = (feat[feature] - self.edge_feature_mean[feature])/self.edge_feature_std[feature]
+        return u, v, feat
+
 
     def get_placement_graph(self, program_id, network_id, mapping):
         node_features = self.get_node_feature(program_id, network_id, mapping)
@@ -116,7 +138,7 @@ class PlacementEnv:
         if return_stats:
             return l, path, G
         try:
-            average_l = np.mean(l)
+            average_l = torch.mean(l)
         except:
             average_l = l
         return average_l
