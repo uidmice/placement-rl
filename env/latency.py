@@ -8,6 +8,12 @@ def computation_latency(program, network, op, dev, noise=0):
     a = program.op_compute[op]
     b = network.comp_rate[dev]
     r = a * b
+    if not noise:
+        return r
+
+    if noise <= 1:
+        return torch.clamp(torch.normal(mean = r, std = noise * r), min=r*(1-noise), max=r*(1+noise))
+
     return max(torch.tensor(0).float(), torch.normal(mean = r, std=noise))
 
 def all_computation_latency(program, network, noise=0):
@@ -21,6 +27,13 @@ def communication_latency(program, network, op1, op2, dev1, dev2, noise=0.0):
     b = network.comm_delay[dev1, dev2]
     r = network.comm_rate[dev1, dev2]
     r = b + a * r
+
+    if not noise:
+        return r
+
+    if noise <= 1:
+        return torch.clamp(torch.normal(mean=r, std=noise * r), min=r * (1 - noise), max=r * (1 + noise))
+
     return max(torch.tensor(0).float(), torch.normal(mean = r, std=noise))
 
 
@@ -137,10 +150,8 @@ def simulate (mapping, program, network, noise=0, repeat=1):
         return G, times[0], paths[0]
     return G, times,  paths
 
-def evaluate(mapping, program, network, noise=0, repeat=1, return_stats=False):
+def evaluate(mapping, program, network, noise=0, repeat=1):
     G, l, path = simulate(mapping, program, network, noise, repeat)
-    if return_stats:
-        return l, path, G
     try:
         average_l = np.mean(l)
     except:

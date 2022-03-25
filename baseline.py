@@ -1,7 +1,7 @@
 import numpy as np
 from env.utils import *
 import pyomo.environ as pyo
-from env.latency import evaluate, computation_latency, communication_latency
+from env.latency import evaluate, computation_latency, communication_latency, simulate
 from heft.core import schedule
 
 
@@ -26,6 +26,26 @@ def heft(program, network, noise=0):
     commcost = lambda op1, op2, d1, d2: communication_latency(program, network, op1, op2, d1, d2)
     orders, jobson = schedule(dag, program.placement_constraints, compcost, commcost)
     return [jobson[i] for i in range(program.n_operators)], max(e.end for e in orders[program.pinned[1]])
+
+def random_op_est_dev(program, network, init_mapping, iter_num=50, noise=0):
+    map = init_mapping.copy()
+    last_latency = evaluate(map, program, network, noise)
+    latencies = [last_latency]
+    for i in range(iter_num):
+        o = np.random.choice(program.n_operators)
+        if o==0:
+            latencies.append(latencies[-1])
+            continue
+        est = {}
+        parents = program.op_parents[o]
+        G, _, _ = simulate(map, program, network, noise)
+        end_time = np.array([np.average(G.nodes[p]['end_time']) for p in parents])
+        for d in program.placement_constraints[o]:
+            c_time = np.array([communication_latency(program, network, p, o, map[p], d) for p in parents])
+            est[d] = np.max(c_time + end_time)
+        map[o] = min(est, key=est.get)
+        latencies.append(evaluate(map, program, network, noise, repeat=3))
+    return map, latencies[-1], latencies
 
 
 def random_op_greedy_dev(program, network, init_mapping, iter_num=50, noise=0):

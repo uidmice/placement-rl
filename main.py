@@ -3,7 +3,7 @@ import torch
 import matplotlib.pyplot as plt
 import random
 
-from baseline import exhaustive, random_placement, heft, random_op_greedy_dev
+from baseline import exhaustive, random_placement, heft, random_op_greedy_dev, random_op_est_dev
 from env.utils import generate_program, generate_network
 from env.network import StarNetwork
 from env.program import Program
@@ -51,6 +51,7 @@ def train(env,
           greedy_dev_selection=True,
           use_baseline=True,
           noise=0,
+          short_earlier_ep=False,
           early_stop = 5):
     op_rewards = []
 
@@ -63,14 +64,15 @@ def train(env,
 
     mask_dev = torch.zeros(network.n_devices).to(device)
 
-    currrent_stop_iter = early_stop
+    currrent_stop_iter = max_iter
+    if short_earlier_ep:
+        currrent_stop_iter = early_stop
 
 
 
     for i in range(episodes):
         cur_mapping = init_mapping.copy()
-        last_latency = env.evaluate(0, 0, init_mapping, noise)
-
+        last_latency, path, G_stats = env.simulate(0, 0, init_mapping, noise)
 
         print(f'=== Episode {i} ===')
         latencies = [last_latency]
@@ -83,12 +85,11 @@ def train(env,
         for t in range(currrent_stop_iter):
             graphs = []
             temp_mapping = cur_mapping.copy()
-            g = env.get_placement_graph(0, 0, temp_mapping).to(device)
+            g = env.get_placement_graph(0, 0, temp_mapping, path, G_stats).to(device)
             s = agent.op_selection(g, mask_op)
 
             if greedy_dev_selection:
-                action = agent.dev_selection_greedy(program, network, cur_mapping, s, program.placement_constraints[s], noise)
-                action = random.choice(action)
+                action = agent.dev_selection_est(program, network, cur_mapping, G_stats, s, program.placement_constraints[s])
             else:
                 parallel = program.op_parallel[s]
                 constraints = program.placement_constraints[s]
@@ -101,7 +102,7 @@ def train(env,
                 action = agent.dev_selection(graphs, s, parallel, mask=mask_dev)
 
             cur_mapping[s] = action
-            latency = env.evaluate(0, 0, cur_mapping, noise)
+            latency, path, G_stats = env.simulate(0, 0, cur_mapping, noise)
             # reward = -latency/10
             # reward = -np.sqrt(latency)/10
             reward = (last_latency - latency)/10
@@ -122,7 +123,8 @@ def train(env,
         lat_records.append(latencies)
         act_records.append(actions)
 
-        if len(lat_records) >= 2:
+
+        if short_earlier_ep and len(lat_records) >= 2:
             last_lat = lat_records[-2]
             incr_flag = 0
             for i in range(len(last_lat)):
@@ -138,7 +140,7 @@ def train(env,
 
 
 fig, axs = plt.subplots(2, 2, sharey=True, sharex=True)
-noises = [0]
+noises = [0, 0.01, 0.05, 0.1]
 for j in range(len(noises)):
     noise = noises[j]
 
