@@ -38,7 +38,8 @@ class Program:
                     parallel_group.append(m)
             self.op_parallel.append(parallel_group)
 
-    def random_mapping(self):
+    def random_mapping(self, seed=0):
+        np.random.seed(seed)
         mapping = [np.random.choice(self.placement_constraints[i]) for i in range(self.n_operators)]
         return mapping
 
