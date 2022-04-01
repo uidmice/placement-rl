@@ -5,7 +5,7 @@ import torch
 from env.latency import *
 
 class PlacementEnv:
-    NODE_FEATURES = ['compute', 'comp_rate', 'criticality']
+    NODE_FEATURES = ['compute', 'comp_rate', 'criticality', 'start_time_potential']
     EDGE_FEATURES = ['bytes', 'comm_delay', 'comm_rate', 'criticality']
     def __init__(self, networks: list, programs: list, seed=0):
 
@@ -36,6 +36,11 @@ class PlacementEnv:
         # self.dev_features = torch.Tensor([self.network.get_node_compute(i) for i in range(self.n_devices)]).view(self.n_devices, -1)
 
         self.seed = seed
+
+        self.full_graph_node_dict = {}
+        self.full_graph_node_static_feat = {}
+
+        self.cardinal_graph_node_static_feat = {}
 
 
     def get_parents(self, program_id, node, mapping):
@@ -110,6 +115,46 @@ class PlacementEnv:
             feat[feature] = (feat[feature] - self.node_feature_mean[feature])/(self.node_feature_std[feature] + 0.01)
         return feat
 
+    def get_full_node_feature(self, program_id, network_id, mapping, G_stats):
+        node_dict = self.full_graph_node_dict[program_id][network_id]
+        program = self.programs[program_id]
+        network = self.networks[network_id]
+
+        def est(op, dev):
+            parents = program.op_parents[op]
+            if op == 0:
+                return 0
+            end_time = np.array([np.mean(G_stats.nodes[p]['end_time']) for p in parents])
+            c_time = np.array([communication_latency(program, network, p, op, mapping[p], dev) for p in parents])
+            est = np.max(c_time + end_time)
+            return est - np.average(G_stats.nodes[op]['start_time'])
+
+        op_comp = torch.zeros(sum([len(node_dict[a]) for a in node_dict]))
+        comp_rate = torch.zeros_like(op_comp)
+        criticality = torch.zeros_like(op_comp)
+        e = torch.zeros_like(op_comp)
+
+        for op in node_dict:
+            op_comp[list(node_dict[op].values())] = program.op_compute[op]
+            criticality[list(node_dict[op].values())] = program.P.nodes[op]['criticality']
+            for d in node_dict[op]:
+                comp_rate[node_dict[op][d]] = network.comp_rate[d]
+                e[node_dict[op][d]] = est(op, d)
+
+        feat = {'compute': op_comp,
+                'comp_rate': comp_rate,
+                # 'comp_time': torch.tensor([torch.mean(G_stats.nodes[o]['comp_time']) for o in range(program.n_operators)]),
+                'criticality': criticality,
+                'start_time_potential': e }
+
+
+        self.node_feature_mean['start_time_potential'] = torch.mean(feat['start_time_potential'])
+        self.node_feature_std['start_time_potential'] = torch.std(feat['start_time_potential'])
+
+        for feature in self.node_feature_mean:
+            feat[feature] = (feat[feature] - self.node_feature_mean[feature])/(self.node_feature_std[feature] + 0.01)
+        return feat
+
     def get_edge_feature(self, program_id, network_id, mapping, G_stats):
         try:
             program = self.programs[program_id]
@@ -144,9 +189,82 @@ class PlacementEnv:
             feat[feature] = (feat[feature] - self.edge_feature_mean[feature])/self.edge_feature_std[feature]
         return u, v, feat
 
+    def get_full_edge_feature(self, program_id, network_id, mapping, G_stats):
+        program = self.programs[program_id]
+        network = self.networks[network_id]
+        node_dict = self.full_graph_node_dict[program_id][network_id]
 
-    def get_placement_graph(self, program_id, network_id, mapping, critial_path, G_stats):
-        self.programs[program_id].update_criticality(critial_path)
+        u = []
+        v = []
+        bytes = []
+        comm_delay = []
+        comm_rate = []
+        criticality = []
+
+        for op in node_dict:
+            for dev in node_dict[op]:
+                node = node_dict[op][dev]
+                for op1, op2 in program.P.in_edges(op):
+                    u.append(node_dict[op1][mapping[op1]])
+                    v.append(node)
+                    bytes.append(program.get_data_bytes(op1, op2))
+                    comm_delay.append(network.comm_delay[mapping[op1], dev])
+                    comm_rate.append(network.comm_rate[mapping[op1], dev])
+                    criticality.append(program.P.edges[op1, op2]['criticality'])
+                for op1, op2 in program.P.out_edges(op):
+                    v.append(node_dict[op2][mapping[op2]])
+                    u.append(node)
+                    bytes.append(program.get_data_bytes(op1, op2))
+                    comm_delay.append(network.comm_delay[dev, mapping[op2]])
+                    comm_rate.append(network.comm_rate[dev, mapping[op2]])
+                    criticality.append(program.P.edges[op1, op2]['criticality'])
+
+        u = torch.tensor(u)
+        v = torch.tensor(v)
+        bytes = torch.tensor(bytes)
+        comm_delay = torch.tensor(comm_delay)
+        comm_rate = torch.tensor(comm_rate)
+        criticality = torch.tensor(criticality)
+
+        feat = {'bytes': bytes, 'comm_delay': comm_delay, 'comm_rate': comm_rate, 'criticality': criticality}
+        for feature in self.edge_feature_mean:
+            feat[feature] = (feat[feature] - self.edge_feature_mean[feature])/self.edge_feature_std[feature]
+        return u, v, feat
+
+    def get_full_graph(self, program_id, network_id, mapping, critical_path, G_stats):
+        self.programs[program_id].update_criticality(critical_path)
+        program = self.programs[program_id]
+
+        node_dict = {}
+        if program_id in self.full_graph_node_dict:
+            if network_id in self.full_graph_node_dict[program_id]:
+                node_dict = self.full_graph_node_dict[program_id][network_id]
+            else:
+                self.full_graph_node_dict[program_id][network_id] = node_dict
+        else:
+            self.full_graph_node_dict[program_id] = {}
+            self.full_graph_node_dict[program_id][network_id] = node_dict
+
+        if not len(node_dict):
+            id = 0
+            for n in program.P.nodes():
+                node_dict[n] = {}
+                for d in program.placement_constraints[n]:
+                    node_dict[n][d] = id
+                    id += 1
+
+        node_features = self.get_full_node_feature(program_id, network_id, mapping, G_stats)
+        u, v, edge_features = self.get_full_edge_feature(program_id, network_id, mapping, G_stats)
+
+        g = dgl.graph((u, v))
+        g.edata['x'] = torch.t(torch.stack([edge_features[feat] for feat in PlacementEnv.EDGE_FEATURES])).float()
+        g.ndata['x'] = torch.t(torch.stack([node_features[feat] for feat in PlacementEnv.NODE_FEATURES])).float()
+        return g
+
+
+
+    def get_cardinal_graph(self, program_id, network_id, mapping, critical_path, G_stats):
+        self.programs[program_id].update_criticality(critical_path)
         node_features = self.get_node_feature(program_id, network_id, mapping, G_stats)
         u, v, edge_features = self.get_edge_feature(program_id, network_id, mapping, G_stats)
 

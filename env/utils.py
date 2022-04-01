@@ -58,7 +58,7 @@ def generate_program(n_operators, n_devices, seed, B=1000, l=100):
         group_ids = np.random.choice(k, k // 2 + (np.random.sample() > 0.5) * 1 - (np.random.sample() > 0.5) * 1)
         constraints[n] = list(set().union(*[groups[j] for j in group_ids]))
         if not len(constraints[n]):
-            constraints[n] = np.random.choice(n_devices, n_devices//2).tolist()
+            constraints[n] = np.random.choice(n_devices, n_devices//2, replace=False).tolist()
     constraints[0] = [np.random.choice(constraints[0])]
     constraints[n_operators - 1] = [np.random.choice(constraints[n_operators - 1])]
     return DAG, constraints
