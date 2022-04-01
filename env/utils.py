@@ -377,6 +377,28 @@ def load_training_instance_for(v, seed, alpha, ccr, beta, n_devices):
     return delay, bw, speed, G
 
 
+def load_training_instance_for_v_ndevice(v, n_devices):
+    delays = []
+    bws = []
+    speeds = []
+    Gs = []
+
+    ccr = [0.1, 0.5, 1.0, 5.0, 10.0]
+    alpha = [0.5, 1.0, 2.0]
+    beta = [0.1, 0.25, 0.5, 0.75, 1.0]
+
+    for talpha in alpha:
+        for tccr in ccr:
+            for tbeta in beta:
+                for seed in range(10):
+                    delay, bw, speed, G = load_training_instance_for(v, seed, talpha, tccr, tbeta, n_devices)
+                    delays.append(delay)
+                    bws.append(bw)
+                    speeds.append(speed)
+                    Gs.append(G)
+    return delays, bws, speeds, Gs
+
+
 def visualize_dag(G, widths, height):
     pos = {}
     max_width = max(widths)
