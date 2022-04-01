@@ -1,6 +1,5 @@
 import numpy as np
 from env.utils import *
-import pyomo.environ as pyo
 from env.latency import evaluate, computation_latency, communication_latency, simulate
 from heft.core import schedule
 
