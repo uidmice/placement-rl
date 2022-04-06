@@ -8,7 +8,7 @@ __pycache__/
 
 .idea/
 
-.pk
+*.pk
 
 # Distribution / packaging
 .Python
