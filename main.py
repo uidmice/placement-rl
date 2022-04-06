@@ -18,27 +18,17 @@ import pickle
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-n_devices = 10
-n_operators = 10
-seed = 1
-network = StarNetwork(*generate_network(n_devices, seed=seed))
-DAG, constraints = generate_program(n_operators, n_devices, seed=seed)
-program = Program(DAG, constraints)
-env = PlacementEnv([network], [program])
-agent = PlacementAgent(env.get_node_feature_dim(),
-                       env.get_edge_feature_dim(),
-                       10, 10)
-mapping = program.random_mapping()
-print(program.placement_constraints)
-
-# m_matrix = np.zeros((n_operators, n_devices))
-# m_matrix[0, program.pinned[0]] = 1
-# m_matrix[-1, program.pinned[1]] = 1
-# min_mapping, min_L, solution = exhaustive(m_matrix, program, network)
-
-num_iter = 50
-num_epo = 20
-
+n_devices = [10, 20, 30]
+n_operators = [10, 20, 30]
+networks = {n: StarNetwork(*generate_network(n, seed=0)) for n in n_devices}
+programs = {}
+for n in n_devices:
+    programs[n] = {}
+    for m in n_operators:
+        programs[n][m] = []
+        for seed in range(5):
+            DAG, constraints = generate_program(m, n, seed=seed)
+            programs[n][m].append(Program(DAG, constraints))
 
 
 def train(env,
@@ -85,7 +75,7 @@ def train(env,
         for t in range(currrent_stop_iter):
             graphs = []
             temp_mapping = cur_mapping.copy()
-            g = env.get_placement_graph(0, 0, temp_mapping, path, G_stats).to(device)
+            g = env.get_cardinal_graph(0, 0, temp_mapping, path, G_stats).to(device)
             s = agent.op_selection(g, mask_op)
 
             if greedy_dev_selection:
@@ -97,7 +87,7 @@ def train(env,
                 mask_dev[constraints] = 1
                 for d in range(n_devices):
                     temp_mapping[s] = d
-                    t_g = env.get_placement_graph(temp_mapping).to(device)
+                    t_g = env.get_cardinal_graph(temp_mapping).to(device)
                     graphs.append(t_g)
                 action = agent.dev_selection(graphs, s, parallel, mask=mask_dev)
 
@@ -138,61 +128,6 @@ def train(env,
 
     return op_rewards, lat_records, act_records, map_records
 
-
-fig, axs = plt.subplots(2, 2, sharey=True, sharex=True)
-noises = [0, 0.01, 0.05, 0.1]
-for j in range(len(noises)):
-    noise = noises[j]
-
-    #calculating baselines
-
-    # random samples
-    sample_map, sample_latency, sample_latencies = random_placement(program, network, num_iter * 3, noise)
-    print(f"Random Sample:\t\t\t {sample_latency:.2f}, mapping: {sample_map}, evaluate latency: {evaluate(sample_map, program, network, noise):.2f}")
-
-    # HEFT
-    heft_map, heft_lat = heft(program, network, noise)
-    print(f"HEFT:\t\t\t\t\t {heft_lat:.2f}, mapping: {heft_map}, evaluate latency: {evaluate(heft_map, program, network, noise):.2f}")
-
-    # Random Op Selection
-    random_traces = []
-    random_lat_best = np.Inf
-    random_map_best = None
-    random_trace_best = None
-    for i in range(num_epo):
-        random_mapping, random_latency, random_latency_trace = random_op_greedy_dev(program, network, mapping, num_iter, noise)
-        random_traces.append(random_latency_trace)
-        if random_latency < random_lat_best:
-            random_lat_best = random_latency
-            random_map_best = random_mapping
-            random_trace_best = random_latency_trace
-    print(f"Random Op Selection:\t {random_lat_best:.2f}, mapping: {random_map_best}, evaluate latency: {evaluate(random_map_best, program, network, noise):.2f}")
-
-    rewards, lat_records, action_records, map_records = train(env, agent, mapping, num_epo,  max_iter=num_iter, update_op_net=True, update_dev_net=False, greedy_dev_selection=True, use_baseline=True, noise=noise)
-    best_records = np.argmin([lat[-1] for lat in lat_records])
-
-    print(f"GNN+RL:\t\t\t\t\t {lat_records[best_records][-1]:.2f}, mapping: {map_records[best_records+1]}, evaluate latency: {evaluate(map_records[best_records+1], program, network, noise):.2f}")
-
-    x = j //2
-    y = j % 2
-    axs[x, y].plot(range(num_iter+1), np.average(np.array(lat_records), axis=0), label = "GNN+RL - average", color='blue', linewidth=2)
-    axs[x, y].plot(range(num_iter+1), lat_records[best_records], label = "GNN+RL - best", color='tab:blue', linewidth=2)
-    axs[x, y].fill_between(range(num_iter+1), np.average(np.array(lat_records), axis=0) + np.std(np.array(lat_records), axis=0), np.average(np.array(lat_records), axis=0) - np.std(np.array(lat_records), axis=0), alpha=.25, color='blue')
-
-    axs[x, y].plot(range(num_iter+1), np.average(np.array(random_traces), axis=0), label=f'Random Op Selection - average', color='orange', linewidth=2)
-    axs[x, y].plot(range(num_iter+1), random_trace_best, label = f'Random Op Selection - best', color='gold', linewidth=2)
-    axs[x, y].fill_between(range(num_iter+1), np.average(np.array(random_traces), axis=0) + np.std(np.array(random_traces), axis=0), np.average(np.array(random_traces), axis=0) - np.std(np.array(random_traces), axis=0), alpha=.25, color='orange')
-
-    axs[x, y].plot(range(num_iter+1), torch.ones(num_iter+1) * sample_latency, label=f'Best Sample', color='green', linewidth=2)
-
-    axs[x, y].plot(range(num_iter+1), torch.ones(num_iter+1) * heft_lat, label='HEFT', color='red', linewidth=2)
-
-
-    axs[x, y].set_title(f'Noise {noise}')
-handles, labels = axs[x, y].get_legend_handles_labels()
-fig.legend(handles, labels, loc='lower right', fontsize=8)
-fig.suptitle(f'{n_devices} devices, {n_operators} ops, seed {seed}', fontsize=20)
-plt.show()
 
 # test_name = "10episode_REINFORCE_original"
 # plt.plot(range(len(rewards)), rewards)
