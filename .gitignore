@@ -8,6 +8,8 @@ __pycache__/
 
 .idea/
 
+.pk
+
 # Distribution / packaging
 .Python
 build/
