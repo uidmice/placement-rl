@@ -15,31 +15,142 @@ from placement_rl.placement_agent import PlacementAgent
 import os
 import pickle
 
+from re import A
+from placement_rl.gnn import OpNet, reset
+from placement_rl.rl_agent import SoftmaxActor
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-n_devices = 10
-n_operators = 10
-seed = 1
-network = StarNetwork(*generate_network(n_devices, seed=seed))
-DAG, constraints = generate_program(n_operators, n_devices, seed=seed)
-program = Program(DAG, constraints)
+n_devices = [10, 20, 30]
+n_operators = [10, 20, 30]
+networks = {n: StarNetwork(*generate_network(n, seed=0)) for n in n_devices}
+programs = {}
+for n in n_devices:
+    programs[n] = {}
+    for m in n_operators:
+        programs[n][m] = []
+        for seed in range(5):
+            DAG, constraints = generate_program(m, n, seed=seed)
+            programs[n][m].append(Program(DAG, constraints))
+
+output_dim = 10
+
+program = programs[10][10][0]
+network = networks[10]
 env = PlacementEnv([network], [program])
-agent = PlacementAgent(env.get_node_feature_dim(),
-                       env.get_edge_feature_dim(),
-                       10, 10)
+
+device_network = OpNet(env.get_node_feature_dim(), env.get_edge_feature_dim(), output_dim).to(device)
+
+dev_policy = SoftmaxActor(output_dim).to(device)
+
+dev_optim = torch.optim.Adam(list(device_network.parameters())+list(dev_policy.parameters()), lr=0.03)
+
+num_episodes = 20
+num_iterations = 50
+
 mapping = program.random_mapping()
 print(program.placement_constraints)
 
-# m_matrix = np.zeros((n_operators, n_devices))
-# m_matrix[0, program.pinned[0]] = 1
-# m_matrix[-1, program.pinned[1]] = 1
-# min_mapping, min_L, solution = exhaustive(m_matrix, program, network)
+last_latency, path, G_stats = env.simulate(0, 0, mapping, 0)
+env.get_full_graph(0, 0, mapping, path, G_stats)
 
-num_iter = 50
-num_epo = 20
+def train_one(env,
+          init_mapping,
+          episodes,
+          max_iter=50,
+          use_baseline=True,
+          noise=0,
+          gamma=0.95):
+    op_rewards = []
 
+    map_records = [init_mapping]
+    lat_records = []
+    act_records = []
 
+    program = env.programs[0]
+    network = env.networks[0]
+
+    mask_dev = torch.zeros(network.n_devices).to(device)
+
+    currrent_stop_iter = max_iter
+
+    node_dict = env.full_graph_node_dict[0][0]
+    action_dict = {}
+    for o in node_dict:
+        for d in node_dict[o]:
+            action_dict[node_dict[o][d]] = (o, d)
+
+    for i in range(episodes):
+        cur_mapping = init_mapping.copy()
+        last_latency, path, G_stats = env.simulate(0, 0, init_mapping, noise)
+
+        print(f'=== Episode {i} ===')
+        latencies = [last_latency]
+        actions = []
+        ep_reward = 0
+
+        mask_op = torch.ones(program.n_operators).to(device)
+        mask_op[0] = mask_op[-1] = 0
+
+        saved_rewards = []
+        dev_log_probs = []
+
+        for t in range(currrent_stop_iter):
+            temp_mapping = cur_mapping.copy()
+            g1 = env.get_full_graph(0, 0, temp_mapping, path, G_stats).to(device)
+            dev_embedding = device_network(g1).to(device)
+            probs = dev_policy(dev_embedding).to(device)
+            m = torch.distributions.Categorical(probs=probs)
+            # action = list(node_dict[s].keys())[m.sample().item()]
+
+            a = m.sample()
+            dev_log_probs.append(m.log_prob(a))
+            s, action = action_dict[a.item()]
+            cur_mapping[s] = action
+            latency, path, G_stats = env.simulate(0, 0, cur_mapping, noise)
+            reward = (last_latency - latency) / 10
+            last_latency = latency
+
+            latencies.append(latency)
+            actions.append([s, action])
+            saved_rewards.append(reward)
+            ep_reward = reward + ep_reward * gamma
+
+        R = 0
+        dev_policy_loss = 0
+        returns = []
+        for r in saved_rewards[::-1]:
+            R = r + gamma * R
+            returns.insert(0, R)
+
+        if use_baseline:
+            for i in range(len(saved_rewards)):
+                if i == 0:
+                    bk = saved_rewards[0]
+                else:
+                    try:
+                        bk = sum(saved_rewards[:i + 1]) / len(saved_rewards[:i + 1])
+                    except:
+                        bk = sum(saved_rewards) / len(saved_rewards)
+                returns[i] -= bk
+
+        returns = torch.tensor(returns).to(device)
+        # returns = (returns - returns.mean()) / (returns.std() + epsilon)
+
+        dev_optim.zero_grad()
+        for log_prob, R in zip(dev_log_probs, returns):
+            dev_policy_loss = dev_policy_loss - log_prob * R
+        dev_policy_loss.backward()
+        dev_optim.step()
+        op_rewards.append(ep_reward)
+        map_records.append(cur_mapping)
+        lat_records.append(latencies)
+        act_records.append(actions)
+
+    return op_rewards, lat_records, act_records, map_records
+
+op_rewards, lat_records, act_records, map_records = train_one(env, mapping, 100, max_iter=num_iterations, use_baseline=True, noise=0,  gamma=0.95)
 
 def train(env,
           agent,
@@ -85,7 +196,7 @@ def train(env,
         for t in range(currrent_stop_iter):
             graphs = []
             temp_mapping = cur_mapping.copy()
-            g = env.get_placement_graph(0, 0, temp_mapping, path, G_stats).to(device)
+            g = env.get_cardinal_graph(0, 0, temp_mapping, path, G_stats).to(device)
             s = agent.op_selection(g, mask_op)
 
             if greedy_dev_selection:
@@ -97,7 +208,7 @@ def train(env,
                 mask_dev[constraints] = 1
                 for d in range(n_devices):
                     temp_mapping[s] = d
-                    t_g = env.get_placement_graph(temp_mapping).to(device)
+                    t_g = env.get_cardinal_graph(temp_mapping).to(device)
                     graphs.append(t_g)
                 action = agent.dev_selection(graphs, s, parallel, mask=mask_dev)
 
@@ -138,61 +249,6 @@ def train(env,
 
     return op_rewards, lat_records, act_records, map_records
 
-
-fig, axs = plt.subplots(2, 2, sharey=True, sharex=True)
-noises = [0, 0.01, 0.05, 0.1]
-for j in range(len(noises)):
-    noise = noises[j]
-
-    #calculating baselines
-
-    # random samples
-    sample_map, sample_latency, sample_latencies = random_placement(program, network, num_iter * 3, noise)
-    print(f"Random Sample:\t\t\t {sample_latency:.2f}, mapping: {sample_map}, evaluate latency: {evaluate(sample_map, program, network, noise):.2f}")
-
-    # HEFT
-    heft_map, heft_lat = heft(program, network, noise)
-    print(f"HEFT:\t\t\t\t\t {heft_lat:.2f}, mapping: {heft_map}, evaluate latency: {evaluate(heft_map, program, network, noise):.2f}")
-
-    # Random Op Selection
-    random_traces = []
-    random_lat_best = np.Inf
-    random_map_best = None
-    random_trace_best = None
-    for i in range(num_epo):
-        random_mapping, random_latency, random_latency_trace = random_op_greedy_dev(program, network, mapping, num_iter, noise)
-        random_traces.append(random_latency_trace)
-        if random_latency < random_lat_best:
-            random_lat_best = random_latency
-            random_map_best = random_mapping
-            random_trace_best = random_latency_trace
-    print(f"Random Op Selection:\t {random_lat_best:.2f}, mapping: {random_map_best}, evaluate latency: {evaluate(random_map_best, program, network, noise):.2f}")
-
-    rewards, lat_records, action_records, map_records = train(env, agent, mapping, num_epo,  max_iter=num_iter, update_op_net=True, update_dev_net=False, greedy_dev_selection=True, use_baseline=True, noise=noise)
-    best_records = np.argmin([lat[-1] for lat in lat_records])
-
-    print(f"GNN+RL:\t\t\t\t\t {lat_records[best_records][-1]:.2f}, mapping: {map_records[best_records+1]}, evaluate latency: {evaluate(map_records[best_records+1], program, network, noise):.2f}")
-
-    x = j //2
-    y = j % 2
-    axs[x, y].plot(range(num_iter+1), np.average(np.array(lat_records), axis=0), label = "GNN+RL - average", color='blue', linewidth=2)
-    axs[x, y].plot(range(num_iter+1), lat_records[best_records], label = "GNN+RL - best", color='tab:blue', linewidth=2)
-    axs[x, y].fill_between(range(num_iter+1), np.average(np.array(lat_records), axis=0) + np.std(np.array(lat_records), axis=0), np.average(np.array(lat_records), axis=0) - np.std(np.array(lat_records), axis=0), alpha=.25, color='blue')
-
-    axs[x, y].plot(range(num_iter+1), np.average(np.array(random_traces), axis=0), label=f'Random Op Selection - average', color='orange', linewidth=2)
-    axs[x, y].plot(range(num_iter+1), random_trace_best, label = f'Random Op Selection - best', color='gold', linewidth=2)
-    axs[x, y].fill_between(range(num_iter+1), np.average(np.array(random_traces), axis=0) + np.std(np.array(random_traces), axis=0), np.average(np.array(random_traces), axis=0) - np.std(np.array(random_traces), axis=0), alpha=.25, color='orange')
-
-    axs[x, y].plot(range(num_iter+1), torch.ones(num_iter+1) * sample_latency, label=f'Best Sample', color='green', linewidth=2)
-
-    axs[x, y].plot(range(num_iter+1), torch.ones(num_iter+1) * heft_lat, label='HEFT', color='red', linewidth=2)
-
-
-    axs[x, y].set_title(f'Noise {noise}')
-handles, labels = axs[x, y].get_legend_handles_labels()
-fig.legend(handles, labels, loc='lower right', fontsize=8)
-fig.suptitle(f'{n_devices} devices, {n_operators} ops, seed {seed}', fontsize=20)
-plt.show()
 
 # test_name = "10episode_REINFORCE_original"
 # plt.plot(range(len(rewards)), rewards)

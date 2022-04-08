@@ -16,7 +16,7 @@ def random_placement(program, network, number_mappings=100, noise=0):
             map = mapping
     return map, min_lat, latencies
 
-def heft(program, network, noise=0):
+def heft(program, network):
     dag = {}
     for n in program.P.nodes:
         dag[n] = list(program.P.neighbors(n))
