@@ -22,7 +22,7 @@ def load_data_from_dir(network_path, program_path, train_ratio = 0.8):
     network_fns = os.listdir(network_path)
     program_fns = os.listdir(program_path)
 
-    network_fn = network_fns[0]
+    network_fn = np.random.choice(network_fns[0])
     network = load_pickle(network_fn)
     delay, bw, speed = network["delay"], network["bw"], network["speed"]
     network = StarNetwork(delay, bw, speed)
@@ -162,8 +162,8 @@ def val_for_one_cluster(env,
 
 
 
-def main_for_one_cluster(network_path,
-                         program_path,
+def main_for_one_cluster(network_path = "./data/network_20",
+                         program_path = "./data/dag_network_20",
                          n_epoch = 30,
                          visualize_training = False):
     env_train, env_val = load_data_from_dir(network_path, program_path, train_ratio = 0.8)
