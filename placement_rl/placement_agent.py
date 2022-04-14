@@ -23,14 +23,14 @@ torch.autograd.set_detect_anomaly(True)
 #         target_param.data.copy_(param.data)
 
 class PlacementAgent:
-    def __init__(self, node_dim, edge_dim, out_op_dim, out_dev_dim,
-                 hidden_dim=64,
-                 lr=0.001,
-                 gamma=0.99):
+    def __init__(self, node_dim, edge_dim, out_op_dim, out_dim,
+                 hidden_dim=32,
+                 lr=0.03,
+                 gamma=0.95):
         self.node_dim = node_dim
         self.edge_dim = edge_dim
         self.out_op_dim = out_op_dim
-        self.out_dev_dim = out_dev_dim
+        self.out_dim = out_dim
         self.hidden_dim = hidden_dim
 
         self.lr = lr
@@ -41,11 +41,16 @@ class PlacementAgent:
         self.op_network_optim = torch.optim.Adam(list(self.op_embedding.parameters())+list(self.op_policy.parameters()), lr=lr)
         self.op_log_probs = []
 
+        #
+        # self.dev_embedding = DevNet(out_op_dim, out_dev_dim).to(device)
+        # self.dev_policy = SoftmaxActor(2 * out_dev_dim + 2 * out_op_dim, hidden_dim).to(device)
+        # self.dev_network_optim = torch.optim.Adam(list(self.dev_embedding.parameters())+list(self.dev_policy.parameters()), lr=lr)
+        # self.dev_log_probs = []
 
-        self.dev_embedding = DevNet(out_op_dim, out_dev_dim).to(device)
-        self.dev_policy = SoftmaxActor(2 * out_dev_dim + 2 * out_op_dim, hidden_dim).to(device)
-        self.dev_network_optim = torch.optim.Adam(list(self.dev_embedding.parameters())+list(self.dev_policy.parameters()), lr=lr)
-        self.dev_log_probs = []
+        self.full_embedding = OpNet(node_dim, edge_dim, out_dim).to(device)
+        self.full_policy = SoftmaxActor(out_dim, hidden_dim).to(device)
+        self.full_network_optim = torch.optim.Adam(list(self.full_embedding.parameters()) + list(self.full_policy.parameters()), lr=lr)
+        self.full_log_probs = []
 
         self.saved_rewards = []
 
@@ -58,19 +63,28 @@ class PlacementAgent:
         self.op_log_probs.append(m.log_prob(action))
         return action.item()
 
-    def dev_selection(self, graphs, op, parallel, mask=None):
-        # x = torch.empty(len(graphs), 2 * self.out_dev_dim + 2*self.out_op_dim).to(device)
-        # for i, g in enumerate(graphs):
-        #     u = self.op_embedding(g).detach()
-        #     x[i] = self.dev_embedding(g, u, op, parallel)
-        gs = dgl.batch(graphs)
-        u = self.op_embedding(gs)
-        x = self.dev_embedding(gs, u, op, parallel)
-        probs = self.dev_policy(x, mask)
+    def op_dev_selection(self, g, action_dict, mask=None):
+        placement_embedding = self.full_embedding(g)
+        probs = self.full_policy(placement_embedding, mask)
         m = torch.distributions.Categorical(probs=probs)
-        action = m.sample()
-        self.dev_log_probs.append(m.log_prob(action))
-        return action.item()
+
+        a = m.sample()
+        self.full_log_probs.append(m.log_prob(a))
+        return action_dict[a.item()]
+
+    # def dev_selection(self, graphs, op, parallel, mask=None):
+    #     # x = torch.empty(len(graphs), 2 * self.out_dev_dim + 2*self.out_op_dim).to(device)
+    #     # for i, g in enumerate(graphs):
+    #     #     u = self.op_embedding(g).detach()
+    #     #     x[i] = self.dev_embedding(g, u, op, parallel)
+    #     gs = dgl.batch(graphs)
+    #     u = self.op_embedding(gs)
+    #     x = self.dev_embedding(gs, u, op, parallel)
+    #     probs = self.dev_policy(x, mask)
+    #     m = torch.distributions.Categorical(probs=probs)
+    #     action = m.sample()
+    #     self.dev_log_probs.append(m.log_prob(action))
+    #     return action.item()
 
     def dev_selection_est(self, program, network, map:list, G_stats, op, options):
         est = {}
@@ -91,46 +105,47 @@ class PlacementAgent:
         best = min(lat.values())
         return [d for d in options if lat[d]==best]
 
-    def finish_episode(self, update_op_network=True, update_dev_network=True, use_baseline=True, update_criticality=True):
-        R = 0
-        op_policy_loss = 0
-        dev_policy_loss = 0
-        returns = []
-        for r in self.saved_rewards[::-1]:
-            R = r + self.gamma * R
-            returns.insert(0, R)
+    def finish_episode(self, update_op_network=True, update_full_network=True, use_baseline=True):
+        if update_full_network or update_op_network:
+            R = 0
+            op_policy_loss = 0
+            dev_policy_loss = 0
+            returns = []
+            for r in self.saved_rewards[::-1]:
+                R = r + self.gamma * R
+                returns.insert(0, R)
 
-        if use_baseline:
-            for i in range(len(self.saved_rewards)):
-                if i == 0:
-                    bk = self.saved_rewards[0]
-                else:
-                    try:
-                        bk = sum(self.saved_rewards[:i + 1]) / len(self.saved_rewards[:i + 1])
-                    except:
-                        bk = sum(self.saved_rewards) / len(self.saved_rewards)
-                returns[i] -= bk
+            if use_baseline:
+                for i in range(len(self.saved_rewards)):
+                    if i == 0:
+                        bk = self.saved_rewards[0]
+                    else:
+                        try:
+                            bk = sum(self.saved_rewards[:i + 1]) / len(self.saved_rewards[:i + 1])
+                        except:
+                            bk = sum(self.saved_rewards) / len(self.saved_rewards)
+                    returns[i] -= bk
 
-        returns = torch.tensor(returns).to(device)
-        # returns = (returns - returns.mean()) / (returns.std() + epsilon)
+            returns = torch.tensor(returns).to(device)
+            # returns = (returns - returns.mean()) / (returns.std() + epsilon)
 
-        if update_op_network:
-            self.op_network_optim.zero_grad()
-            for log_prob, R in zip(self.op_log_probs, returns):
-                op_policy_loss = op_policy_loss - log_prob * R
-            op_policy_loss.backward()
-            self.op_network_optim.step()
+            if update_op_network:
+                self.op_network_optim.zero_grad()
+                for log_prob, R in zip(self.op_log_probs, returns):
+                    op_policy_loss = op_policy_loss - log_prob * R
+                op_policy_loss.backward()
+                self.op_network_optim.step()
 
-        if update_dev_network:
-            self.dev_network_optim.zero_grad()
-            for log_prob, R in zip(self.dev_log_probs, returns):
-                dev_policy_loss = dev_policy_loss - log_prob * R
-            dev_policy_loss.backward()
-            self.dev_network_optim.step()
+            if update_full_network:
+                self.full_network_optim.zero_grad()
+                for log_prob, R in zip(self.full_log_probs, returns):
+                    dev_policy_loss = dev_policy_loss - log_prob * R
+                dev_policy_loss.backward()
+                self.full_network_optim.step()
 
         del self.saved_rewards[:]
         del self.op_log_probs[:]
-        del self.dev_log_probs[:]
+        del self.full_log_probs[:]
 
     # def finish_episode_REINFORCE(self, update_op_network=True, update_dev_network=False):
     #     R = 0

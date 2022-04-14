@@ -87,6 +87,9 @@ class Program:
 
 
     def update_criticality(self, critical_path, step_size=0.1):
+        if not critical_path:
+            return
+
         for i in range(len(critical_path) - 1):
             n = critical_path[i]
             if self.P.out_degree(n) >1:
