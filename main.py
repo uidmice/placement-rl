@@ -2,6 +2,8 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 import random
+import time
+import datetime
 
 from baseline import exhaustive, random_placement, heft, random_op_greedy_dev, random_op_est_dev
 from env.utils import generate_program, generate_network
@@ -21,7 +23,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 n_devices = [10, 20, 30]
 n_operators = [10, 20, 30]
 networks = {n: StarNetwork(*generate_network(n, seed=0)) for n in n_devices}
-num_programs = 10
+num_programs = 5
+
 programs = {}
 for n in n_devices:
     programs[n] = {}
@@ -33,102 +36,178 @@ for n in n_devices:
 
 output_dim = 10
 
-env = PlacementEnv([networks[20]], programs[20][10])
+n_device = 20
+n_program= 10
+env = PlacementEnv([networks[n_device]], programs[n_device][n_program])
 
-agent = PlacementAgent(env.get_node_feature_dim(), env.get_edge_feature_dim(), output_dim, output_dim)
+agent = PlacementAgent(env.get_node_feature_dim(), env.get_edge_feature_dim(), output_dim, output_dim, hidden_dim=32, lr=0.01)
 num_iterations = 50
 episode_per_program=20
 
 
 def run_episodes(env,
                  agent,
-                 program_id,
-                 network_id,
+                 program_ids,
+                 network_ids,
                  seeds,
-                 episode_per_seed=1,
-                 shuffle_episodes=False,
+                 use_full_graph=True,
+                 use_bip_connection=False,
+                 multi_selection=False,
                  explore=True,
                  max_iter=50,
                  use_baseline=True,
                  update_op_policy=False,
                  update_policy=True,
+                 save_data=False,
+                 save_dir='data',
+                 save_suffix='',
                  noise=0):
 
-    if isinstance(seeds, int):
-        seeds = [seeds]
     assert isinstance(seeds, list)
+    assert isinstance(program_ids, list)
+    assert isinstance(network_ids, list)
+    assert len(seeds) == len(program_ids) and len(seeds) == len(network_ids)
 
-    seeds = seeds * episode_per_seed
-    if shuffle_episodes:
-        np.random.shuffle(seeds)
-
-    program = env.programs[program_id]
 
     currrent_stop_iter = max_iter
 
-    env.init_full_graph(program_id, network_id)
+    if use_full_graph:
+        for program_id, network_id in zip(program_ids, network_ids):
+            env.init_full_graph(program_id, network_id)
 
-    action_dict = env.full_graph_action_dict[program_id][network_id]
-    node_dict = env.full_graph_node_dict[program_id][network_id]
-    mask = torch.ones(len(action_dict)).to(device)
+    records = []
 
-
-    map_records = []
-    return_records = []
-    reward_records = []
-    lat_records = []
-    act_records = []
-
-    for seed in seeds:
+    for seed, program_id, network_id in zip(seeds, program_ids, network_ids):
         total_return = 0
+        program = env.programs[program_id]
+        network = env.networks[network_id]
         cur_mapping = program.random_mapping(seed)
+
+        if use_full_graph:
+            action_dict = env.full_graph_action_dict[program_id][network_id]
+            node_dict = env.full_graph_node_dict[program_id][network_id]
+            mask = torch.ones(len(action_dict)).to(device)
+        else:
+            mask = torch.ones(program.n_operators).to(device)
+            mask[0] = mask[-1] = 0
 
         last_latency, path, G_stats = env.simulate(program_id, network_id, cur_mapping, noise)
 
         ep_latencies = [last_latency]
         ep_actions = []
         ep_rewards = []
+        ep_data = {
+            'n_devices': network.n_devices,
+            'n_operators': program.n_operators,
+            'seed': program_id,
+            'init_seed': seed,
+            'noise': noise,
+            'n_iters': currrent_stop_iter
+        }
 
+        print(ep_data)
 
+        start_time = time.time()
         for t in range(currrent_stop_iter):
-            g = env.get_full_graph(program_id, network_id, cur_mapping, G_stats, path).to(device)
+            if use_full_graph:
+                g = env.get_full_graph(program_id, network_id, cur_mapping, G_stats, path, use_bip_connection).to(device)
 
-            if explore:
-                cur_nodes = [node_dict[o][cur_mapping[o]] for o in node_dict]
-                mask[:] = 1
-                mask[cur_nodes]=0
+                if explore:
+                    cur_nodes = [node_dict[o][cur_mapping[o]] for o in node_dict]
+                    mask[:] = 1
+                    mask[cur_nodes]=0
 
-            s, action = agent.op_dev_selection(g, action_dict, mask)
-            cur_mapping[s] = action
+                if multi_selection:
+                    action_map = agent.multi_op_dev_selection(g, node_dict)
+                    cur_mapping = action_map
+                    ep_actions.append(action_map)
+                else:
+                    s, action = agent.op_dev_selection(g, action_dict, mask)
+                    cur_mapping[s] = action
+                    ep_actions.append([s, action])
+            else:
+                g = env.get_cardinal_graph(program_id, network_id, cur_mapping, G_stats, path).to(device)
+                s = agent.op_selection(g, mask)
+                action = agent.dev_selection_est(program, network, cur_mapping, G_stats, s,
+                                                 program.placement_constraints[s])
+                cur_mapping[s] = action
+                ep_actions.append([s, action])
+
+
+            print(cur_mapping)
             latency, path, G_stats = env.simulate(program_id, network_id, cur_mapping, noise)
             reward = (last_latency - latency) / 10
             last_latency = latency
 
             ep_latencies.append(latency)
-            ep_actions.append([s, action])
             agent.saved_rewards.append(reward)
             ep_rewards.append(reward)
             total_return = reward + total_return * agent.gamma
-        map_records.append(cur_mapping)
-        return_records.append(total_return)
-        lat_records.append(ep_latencies)
-        act_records.append(ep_actions)
-        reward_records.append(ep_rewards)
-
         agent.finish_episode(update_op_network=update_op_policy, update_full_network=update_policy, use_baseline=use_baseline)
+        ep_data['run_time'] = time.time() - start_time
+        ep_data['final_mapping'] = cur_mapping
+        ep_data['ep_return'] = total_return
+        ep_data['latency_trace'] = ep_latencies
+        ep_data['actions'] = ep_actions
+        ep_data['rewards'] = ep_rewards
 
-    return lat_records, reward_records, act_records, map_records, return_records
+        records.append(ep_data)
 
-data = list(range(num_programs)) * episode_per_program
-np.random.shuffle(data)
+    if save_data:
+        if use_full_graph:
+            name='full_graph'
+        else:
+            name='op_graph'
+        logname = os.path.join(
+            save_dir, '{}_{}_{}.pk'.format(name,
+                datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
+                save_suffix))
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        pickle.dump(records, open(logname, 'wb'))
 
-episode_records = {}
-for i in range(num_programs):
-    episode_records[i] = []
-for i, prog_id in enumerate(data):
-    print([i, prog_id])
-    lat_records, reward_records, act_records, map_records, return_records = run_episodes(env, agent, prog_id, 0, 0, max_iter=num_iterations)
-    episode_records[prog_id].append([lat_records[0], reward_records[0], act_records[0], map_records, return_records])
+    return records
+
+program_ids = list(range(num_programs)) * episode_per_program
+np.random.shuffle(program_ids)
+network_ids = [0] * num_programs * episode_per_program
+seeds = [0] * num_programs * episode_per_program
+
+
+# op selection
+# record = run_episodes(env,
+#                  agent,
+#                  program_ids,
+#                  network_ids,
+#                  seeds,
+#                  use_full_graph=False,
+#                  max_iter=num_iterations,
+#                  use_baseline=True,
+#                  update_op_policy=True,
+#                  update_policy=False,
+#                  save_data=True,
+#                  save_dir='data',
+#                  save_suffix=f'N_{n_device}',
+#                  noise=0)
+
+# full graph selection
+record = run_episodes(env,
+                 agent,
+                 program_ids,
+                 network_ids,
+                 seeds,
+                 use_full_graph=True,
+                 use_bip_connection=False,
+                 explore=True,
+                 max_iter=num_iterations,
+                 use_baseline=True,
+                 update_op_policy=False,
+                 update_policy=True,
+                 save_data=True,
+                 save_suffix=f'N_{n_device}_P_{n_program}',
+                 noise=0)
+torch.save(agent.full_policy.state_dict(), 'full_graph_policy.pk')
+torch.save(agent.full_embedding.state_dict(), 'full_graph_embedding.pk')
 
 def train(env,
           agent,
