@@ -23,23 +23,22 @@ torch.autograd.set_detect_anomaly(True)
 #         target_param.data.copy_(param.data)
 
 class PlacementAgent:
-    def __init__(self, node_dim, edge_dim, out_op_dim, out_dim,
+    def __init__(self, node_dim, edge_dim, out_dim,
                  hidden_dim=32,
                  lr=0.03,
                  gamma=0.95):
         self.node_dim = node_dim
         self.edge_dim = edge_dim
-        self.out_op_dim = out_op_dim
         self.out_dim = out_dim
         self.hidden_dim = hidden_dim
 
         self.lr = lr
         self.gamma = gamma
 
-        self.op_embedding = OpNet(node_dim, edge_dim, out_op_dim).to(device)
-        self.op_policy = SoftmaxActor(out_op_dim, hidden_dim).to(device)
-        self.op_network_optim = torch.optim.Adam(list(self.op_embedding.parameters())+list(self.op_policy.parameters()), lr=lr)
-        self.op_log_probs = []
+        self.embedding = OpNet(node_dim, edge_dim, out_dim).to(device)
+        self.policy = SoftmaxActor(out_dim, hidden_dim).to(device)
+        self.optim = torch.optim.Adam(list(self.embedding.parameters()) + list(self.policy.parameters()), lr=lr)
+        self.log_probs = []
 
         #
         # self.dev_embedding = DevNet(out_op_dim, out_dev_dim).to(device)
@@ -47,30 +46,41 @@ class PlacementAgent:
         # self.dev_network_optim = torch.optim.Adam(list(self.dev_embedding.parameters())+list(self.dev_policy.parameters()), lr=lr)
         # self.dev_log_probs = []
 
-        self.full_embedding = OpNet(node_dim, edge_dim, out_dim).to(device)
-        self.full_policy = SoftmaxActor(out_dim, hidden_dim).to(device)
-        self.full_network_optim = torch.optim.Adam(list(self.full_embedding.parameters()) + list(self.full_policy.parameters()), lr=lr)
-        self.full_log_probs = []
-
         self.saved_rewards = []
 
 
     def op_selection(self, g, mask=None):
-        u = self.op_embedding(g)
-        probs = self.op_policy(u, mask)
+        u = self.embedding(g)
+        probs = self.policy(u, mask)
         m = torch.distributions.Categorical(probs=probs)
         action = m.sample()
-        self.op_log_probs.append(m.log_prob(action))
+        self.log_probs.append(m.log_prob(action))
         return action.item()
 
     def op_dev_selection(self, g, action_dict, mask=None):
-        placement_embedding = self.full_embedding(g)
-        probs = self.full_policy(placement_embedding, mask)
+        placement_embedding = self.embedding(g)
+        probs = self.policy(placement_embedding, mask)
         m = torch.distributions.Categorical(probs=probs)
 
         a = m.sample()
-        self.full_log_probs.append(m.log_prob(a))
+        self.log_probs.append(m.log_prob(a))
         return action_dict[a.item()]
+
+    def multi_op_dev_selection(self, g, node_dict):
+        placement_embedding = self.embedding(g)
+        probs = self.policy(placement_embedding)
+        actions = {}
+        p = 0
+        for node in node_dict:
+            prob = probs[list(node_dict[node].values())]
+            m = torch.distributions.Categorical(probs=prob/torch.sum(prob))
+            a = m.sample()
+            d, n_idx = list(node_dict[node].items())[a]
+            # n, d = action_dict[a.item()]
+            actions[node] = d
+            p += m.log_prob(a)
+        self.log_probs.append(p)
+        return [actions[n] for n in range(len(actions))]
 
     # def dev_selection(self, graphs, op, parallel, mask=None):
     #     # x = torch.empty(len(graphs), 2 * self.out_dev_dim + 2*self.out_op_dim).to(device)
@@ -105,11 +115,11 @@ class PlacementAgent:
         best = min(lat.values())
         return [d for d in options if lat[d]==best]
 
-    def finish_episode(self, update_op_network=True, update_full_network=True, use_baseline=True):
-        if update_full_network or update_op_network:
+    def finish_episode(self, update_network=True,  use_baseline=True):
+        if update_network:
             R = 0
-            op_policy_loss = 0
-            dev_policy_loss = 0
+            policy_loss = 0
+
             returns = []
             for r in self.saved_rewards[::-1]:
                 R = r + self.gamma * R
@@ -129,23 +139,14 @@ class PlacementAgent:
             returns = torch.tensor(returns).to(device)
             # returns = (returns - returns.mean()) / (returns.std() + epsilon)
 
-            if update_op_network:
-                self.op_network_optim.zero_grad()
-                for log_prob, R in zip(self.op_log_probs, returns):
-                    op_policy_loss = op_policy_loss - log_prob * R
-                op_policy_loss.backward()
-                self.op_network_optim.step()
-
-            if update_full_network:
-                self.full_network_optim.zero_grad()
-                for log_prob, R in zip(self.full_log_probs, returns):
-                    dev_policy_loss = dev_policy_loss - log_prob * R
-                dev_policy_loss.backward()
-                self.full_network_optim.step()
+            self.optim.zero_grad()
+            for log_prob, R in zip(self.log_probs, returns):
+                policy_loss = policy_loss - log_prob * R
+            policy_loss.backward()
+            self.optim.step()
 
         del self.saved_rewards[:]
-        del self.op_log_probs[:]
-        del self.full_log_probs[:]
+        del self.log_probs[:]
 
     # def finish_episode_REINFORCE(self, update_op_network=True, update_dev_network=False):
     #     R = 0
