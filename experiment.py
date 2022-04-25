@@ -12,6 +12,7 @@ from env.utils import generate_program, generate_network
 from env.network import StarNetwork
 from env.program import Program
 from env.latency import evaluate
+from env.utils import *
 
 from placement_rl.placement_env import PlacementEnv
 from placement_rl.placement_agent import PlacementAgent
@@ -21,6 +22,63 @@ import pickle
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
+def load_data_from_dir(network_path, program_path, exp_cfg, train_ratio=0.8):
+    network_fns = os.listdir(network_path)
+    # program_fns = os.listdir(program_path)
+
+    program_fns = data_fn_filter(program_path,
+                                 exp_cfg.v_range,
+                                 exp_cfg.alpha_range,
+                                 exp_cfg.seed_range,
+                                 exp_cfg.ccr_range,
+                                 exp_cfg.beta_range,
+                                 exp_cfg.comm_range)
+
+    # network_fn = np.random.choice(network_fns[0])
+    network_fn = network_fns[0]
+    network = load_pickle(os.path.join(network_path, network_fn))
+    delay, bw, speed = network["delay"], network["bw"], network["speed"]
+    delay = np.mean(delay, axis = 1)
+    bw = np.mean(bw, axis = 1)
+    network_constraints = network["device_constraints"]
+    network = StarNetwork(delay, bw, speed)
+    networks = [network]
+
+    for i, li in enumerate(network_constraints):
+        for j, element in enumerate(li):
+            if isinstance(element, np.ndarray):
+                li[j] = element[0]
+
+    programs = []
+    for program_fn in program_fns:
+        G = load_dag(os.path.join(program_path, program_fn))
+
+        op_constraints = []
+        for n in G.nodes:
+            G.nodes[n]["compute"] = float(G.nodes[n]["compute"])
+            op_constraints.append(G.nodes[n]["op_constraints"])
+
+        for e in G.edges:
+            G.edges[e]["bytes"] = float(G.edges[e]["bytes"])
+
+        constraints = []
+        for op_constraint in op_constraints:
+            constraints.append([])
+            for i, device_constraint in enumerate(network_constraints):
+                if op_constraint[0] in device_constraint:
+                    constraints[-1].append(i)
+
+        program = Program(G, constraints)
+        programs.append(program)
+
+    n_train = int(len(programs) * train_ratio)
+    n_val = len(programs) - n_train
+
+    env_train = PlacementEnv([network], programs[:n_train])
+    env_val = PlacementEnv([network], programs[n_train + 1:])
+
+    return env_train, env_val, networks, programs[:n_train]
 
 def run_episodes(env,
                  agent,
@@ -167,6 +225,180 @@ class Experiment:
 
 
         self.train_env = PlacementEnv(self.train_networks, self.train_programs)
+
+        episode_per_setting = self.exp_cfg.num_episodes_per_setting
+        if not episode_per_setting:
+            episode_per_setting = self.exp_cfg.num_training_episodes // len(self.train_networks) // len(self.train_programs) // len(self.exp_cfg.init_mapping_seeds_training)
+
+        set = list(itertools.product(list(range(len(self.train_env.networks))), list(range(len(self.train_env.programs))), self.exp_cfg.init_mapping_seeds_training)) * episode_per_setting
+        self.num_train_episodes = len(set)
+        np.random.shuffle(set)
+
+        self.train_program_ids = [l[1] for l in set]
+        self.train_network_ids = [l[0] for l in set]
+        self.train_init_seeds = [l[2] for l in set]
+
+        self.test_networks = [StarNetwork(*generate_network(n, seed=0)) for n in self.exp_cfg.num_devices_testing]
+        test_network_id = {i: {'n_devices': self.test_networks[i].n_devices, 'seed': 0} for i in range(len(self.test_networks))}
+
+        self.test_programs = []
+        test_program_id = {}
+        idx = 0
+        for m in self.exp_cfg.num_operators_testing:
+            for n in self.exp_cfg.num_devices_testing:
+                for seed in self.exp_cfg.application_graph_seeds_testing:
+                    self.test_programs.append(Program(*generate_program(m, n, seed=seed)))
+                    test_program_id[idx] = {'n_operators': m, 'n_devices': n, 'seed': 0}
+                    idx += 1
+        self.test_env = PlacementEnv(self.test_networks, self.test_programs)
+
+        set = list(itertools.product(list(range(len(self.test_env.networks))), list(range(len(self.test_env.programs))), self.exp_cfg.init_mapping_seeds_testing))
+
+        self.test_program_ids = [l[1] for l in set]
+        self.test_network_ids = [l[0] for l in set]
+        self.test_init_seeds = [l[2] for l in set]
+
+        self.agent = PlacementAgent(self.train_env.get_node_feature_dim(), self.train_env.get_edge_feature_dim(), self.exp_cfg.output_dim,
+                                    hidden_dim=self.exp_cfg.hidden_dim, lr=self.exp_cfg.lr, gamma=self.exp_cfg.gamma)
+
+        pickle.dump({'test_program': test_program_id, 'test_network': test_network_id, 'train_program': train_program_id, 'train_network': train_network_id},
+                    open(os.path.join(self.logdir, "data_id.pkl"), "wb"))
+
+    def train(self):
+        full_graph = not self.exp_cfg.use_op_selection
+        if self.exp_cfg.eval:
+            record = []
+            eval_records = []
+            for i in range(self.num_train_episodes//20):
+                train_record = run_episodes(self.train_env,
+                                  self.agent,
+                                  self.train_program_ids[i*20: i*20 + 20],
+                                  self.train_network_ids[i*20: i*20 + 20],
+                                  self.train_init_seeds[i*20: i*20 + 20],
+                                  use_full_graph=full_graph,
+                                  max_iter = self.exp_cfg.max_iterations_per_episode,
+                                  update_policy=True,
+                                  save_data=False,
+                                  noise=self.exp_cfg.noise)
+                test_record = run_episodes(self.test_env,
+                                            self.agent,
+                                            self.test_program_ids * self.exp_cfg.testing_episodes,
+                                            self.test_network_ids * self.exp_cfg.testing_episodes,
+                                            self.test_init_seeds * self.exp_cfg.testing_episodes,
+                                            use_full_graph=full_graph,
+                                            max_iter=self.exp_cfg.max_iterations_per_episode,
+                                            update_policy=False,
+                                            save_data=False,
+                                            noise=self.exp_cfg.noise)
+                record.append(train_record)
+                eval_records.append(test_record)
+
+            pickle.dump(record, open(os.path.join(self.logdir, "train.pk"), "wb"))
+            pickle.dump(eval_records, open(os.path.join(self.logdir, "eval.pk"), "wb"))
+
+        else:
+            record = run_episodes(self.train_env,
+                                  self.agent,
+                                  self.train_program_ids,
+                                  self.train_network_ids,
+                                  self.train_init_seeds,
+                                  use_full_graph=full_graph,
+                                  max_iter=self.exp_cfg.max_iterations_per_episode,
+                                  update_policy=True,
+                                  save_data=True,
+                                  save_dir=self.logdir,
+                                  save_name='train',
+                                  noise=self.exp_cfg.noise)
+        torch.save(self.agent.policy.state_dict(), os.path.join(self.logdir, 'policy.pk'))
+        torch.save(self.agent.embedding.state_dict(), os.path.join(self.logdir, 'embedding.pk'))
+
+        return record
+
+    def test(self):
+        for seed, program_id, network_id in zip(self.test_init_seeds, self.test_program_ids, self.test_network_ids):
+            self.agent.policy.load_state_dict(torch.load(os.path.join(self.logdir, 'policy.pk')))
+            self.agent.embedding.load_state_dict(torch.load(os.path.join(self.logdir, 'embedding.pk')))
+
+            if self.exp_cfg.tuning_spisodes:
+                run_episodes(self.test_env, self.agent,
+                             [program_id] * self.exp_cfg.tuning_spisodes,
+                             [network_id] * self.exp_cfg.tuning_spisodes,
+                             [seed] * self.exp_cfg.tuning_spisodes,
+                             use_full_graph=not self.exp_cfg.use_op_selection,
+                             use_bip_connection=False,
+                             explore=True,
+                             max_iter=self.exp_cfg.max_iterations_per_episode,
+                             update_policy=True,
+                             save_data=True,
+                             save_dir=self.logdir,
+                             save_name=f'tune_program_{program_id}_network_{network_id}_seed_{seed}',
+                             noise=self.exp_cfg.noise)
+
+            run_episodes(self.test_env, self.agent,
+                         [program_id] * self.exp_cfg.testing_episodes,
+                         [network_id] * self.exp_cfg.testing_episodes,
+                             [seed] * self.exp_cfg.testing_episodes,
+                             use_full_graph=not self.exp_cfg.use_op_selection,
+                             use_bip_connection=False,
+                             explore=True,
+                             max_iter=self.exp_cfg.max_iterations_per_episode,
+                             update_policy=False,
+                             save_data=True,
+                             save_dir=self.logdir,
+                             save_name=f'test_explore_program_{program_id}_network_{network_id}_seed_{seed}',
+                             noise=self.exp_cfg.noise)
+
+            run_episodes(self.test_env, self.agent,
+                         [program_id] * self.exp_cfg.testing_episodes,
+                         [network_id] * self.exp_cfg.testing_episodes,
+                             [seed] * self.exp_cfg.testing_episodes,
+                             use_full_graph=not self.exp_cfg.use_op_selection,
+                             use_bip_connection=False,
+                             explore=False,
+                             max_iter=self.exp_cfg.max_iterations_per_episode,
+                             update_policy=False,
+                             save_data=True,
+                             save_dir=self.logdir,
+                             save_name=f'test_noexp_program_{program_id}_network_{network_id}_seed_{seed}',
+                             noise=self.exp_cfg.noise)
+
+
+
+class Experiment_on_data:
+    def __init__(self, exp_config):
+
+        self.exp_cfg = exp_config
+
+        self.logdir = os.path.join(
+            self.exp_cfg.logdir, '{}_{}'.format(
+                datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
+                self.exp_cfg.logdir_suffix))
+        if not os.path.exists(self.logdir):
+            os.makedirs(self.logdir)
+
+        print("LOGDIR: ", self.logdir)
+        pickle.dump(self.exp_cfg,
+                    open(os.path.join(self.logdir, "args.pkl"), "wb"))
+
+
+        network_path = self.exp_cfg.device_net_path
+        op_path = self.exp_cfg.op_net_path
+
+        env_train, env_val, networks, programs = load_data_from_dir(network_path, op_path, self.exp_cfg, train_ratio=0.9)
+        self.train_networks = networks
+        self.train_programs = programs
+
+        train_network_id = {i: {'n_devices': self.train_networks[i].n_devices, 'seed': 0} for i in range(len(self.train_networks))}
+
+        train_program_id = {}
+
+        for idx in range(len(self.train_programs)):
+            n_operators = self.train_programs[idx].n_operators
+            n_devices = self.train_networks[0].n_devices
+            seed = 0
+            train_program_id[idx] = {"n_operators":n_operators, "n_devices":n_devices, "seed":0}
+
+        self.train_env = env_train
 
         episode_per_setting = self.exp_cfg.num_episodes_per_setting
         if not episode_per_setting:
