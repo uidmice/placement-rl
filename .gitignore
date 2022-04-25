@@ -10,6 +10,7 @@ __pycache__/
 *.DS_Store
 *.pk
 
+\runs
 # Distribution / packaging
 .Python
 build/

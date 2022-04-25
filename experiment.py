@@ -220,7 +220,7 @@ class Experiment:
             for n in self.exp_cfg.num_devices_training:
                 for seed in self.exp_cfg.application_graph_seeds_training:
                     self.train_programs.append(Program(*generate_program(m, n, seed=seed)))
-                    train_program_id[idx] = {'n_operators': m, 'n_devices': n, 'seed': 0}
+                    train_program_id[idx] = {'n_operators': m, 'n_devices': n, 'seed': seed}
                     idx += 1
 
 
@@ -248,7 +248,7 @@ class Experiment:
             for n in self.exp_cfg.num_devices_testing:
                 for seed in self.exp_cfg.application_graph_seeds_testing:
                     self.test_programs.append(Program(*generate_program(m, n, seed=seed)))
-                    test_program_id[idx] = {'n_operators': m, 'n_devices': n, 'seed': 0}
+                    test_program_id[idx] = {'n_operators': m, 'n_devices': n, 'seed': seed}
                     idx += 1
         self.test_env = PlacementEnv(self.test_networks, self.test_programs)
 
