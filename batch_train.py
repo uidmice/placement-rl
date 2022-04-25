@@ -173,7 +173,7 @@ def main_for_one_cluster(network_path = "./data/network_20",
                            10, 10)
 
     # Scheduler for operator optimizer
-    op_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(agent.op_network_optim,
+    op_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(agent.optim,
                                                               mode = "max",
                                                               factor = 0.8,
                                                               patience = 2,
