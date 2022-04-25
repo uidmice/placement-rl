@@ -1,4 +1,4 @@
-from experiment import Experiment
+from experiment import Experiment, Experiment_on_data
 
 import argparse
 
@@ -13,12 +13,10 @@ def get_args():
     parser.add_argument('--cuda',
                         action='store_true',
                         help='run on CUDA (default: False)')
-
     parser.add_argument('--noise',
                         default=0,
                         type=float,
                         help='noise level 0-1 (default: 0)')
-
 
     ### Training parameters ###
     parser.add_argument('--lr',
@@ -50,6 +48,36 @@ def get_args():
                         type=int,
                         nargs='+',
                         help='seeds for determining initial mappings for training (default: [0])')
+    parser.add_argument("--v_range",
+                        default=[60,100],
+                        type=int,
+                        nargs="+",
+                        help="v range for program data")
+    parser.add_argument("--alpha_range",
+                        default=[0.5, 0.5],
+                        type=float,
+                        nargs="+",
+                        help="alpha range for program data")
+    parser.add_argument("--seed_range",
+                        default=[1,10],
+                        type=int,
+                        nargs="+",
+                        help="random seed range for program data")
+    parser.add_argument("--ccr_range",
+                        default=[1.0,1.0],
+                        type=float,
+                        nargs="+",
+                        help="communication to compute ratio range for program data")
+    parser.add_argument("--beta_range",
+                        default=[0.25,0.25],
+                        type=float,
+                        nargs="+",
+                        help="beta range for program data")
+    parser.add_argument("--comm_range",
+                        default=[1000,1000],
+                        type=int,
+                        nargs="+",
+                        help="avergae communication range for program data")
 
     # policy
     parser.add_argument('--gamma',
@@ -131,6 +159,12 @@ def get_args():
                         type=int,
                         nargs='+',
                         help='seeds for determining initial mappings for testing (default: [0])')
+    parser.add_argument("--device_net_path",
+                        default = "./data/device_networks",
+                        help="input directory for device network params")
+    parser.add_argument("--op_net_path",
+                        default = "./data/op_networks/ndevice_20_ntype_5_speed_0.5_bw_3_delay_200",
+                        help= "input directory for operator network params")
 
     return parser.parse_args()
 
@@ -139,6 +173,7 @@ if __name__ == '__main__':
     exp_cfg = get_args()
     print(exp_cfg)
 
-    experiment = Experiment(exp_cfg)
+    # experiment = Experiment(exp_cfg)
+    experiment = Experiment_on_data(exp_cfg)
     experiment.train()
     experiment.test()

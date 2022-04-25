@@ -429,3 +429,35 @@ def visualize_dag(G, widths, height):
     return
 
 
+def data_fn_filter(op_network_path,
+                   v_range=[60, 100],
+                   alpha_range=[0.5, 0.5],
+                   seed_range=[1, 10],
+                   ccr_range=[1.0, 1.0],
+                   beta_range=[0.25, 0.25],
+                   comm_range=[1000, 1000]):
+    eps = 1e-5
+    fns = os.listdir(op_network_path)
+    res = []
+    for fn in fns:
+        token = fn.split("_")
+        if float(token[1]) < v_range[0] or float(token[1]) > v_range[1]:
+            continue
+        elif float(token[3]) < alpha_range[0] or float(token[3]) > alpha_range[1]:
+            continue
+        elif float(token[5]) < seed_range[0] or float(token[5]) > seed_range[1]:
+            continue
+        elif float(token[7]) < ccr_range[0] or float(token[7]) > ccr_range[1]:
+            continue
+        elif float(token[9]) < beta_range[0] or float(token[9]) > beta_range[1]:
+            continue
+        elif float(token[11].split(".")[0]) < comm_range[0] or float(token[11].split(".")[0]) > comm_range[1]:
+            continue
+        else:
+            res.append(fn)
+
+    return res
+
+
+
+
