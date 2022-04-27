@@ -429,29 +429,45 @@ def visualize_dag(G, widths, height):
     return
 
 
-def data_fn_filter(op_network_path,
-                   v_range=[60, 100],
-                   alpha_range=[0.5, 0.5],
-                   seed_range=[1, 10],
-                   ccr_range=[1.0, 1.0],
-                   beta_range=[0.25, 0.25],
-                   comm_range=[1000, 1000]):
-    eps = 1e-5
-    fns = os.listdir(op_network_path)
+def network_fn_filter(network_path,
+                   n_devices=[20],
+                   type_probs=[0.2],
+                   avg_speeds=[5],
+                   avg_bws=[100],
+                   avg_delays=[10],
+                   b_bws=[0.2],
+                   b_speeds=[0.2],
+                   num_types=[5]):
+
+    fns = os.listdir(network_path)
     res = []
     for fn in fns:
+        if '.pkl' not in fn:
+            continue
         token = fn.split("_")
-        if float(token[1]) < v_range[0] or float(token[1]) > v_range[1]:
+        ndevice = int(token[1])
+        ntype = int(token[3])
+        speed = int(token[5])
+        bw = int(token[7])
+        delay = int(token[9])
+        tprob = float(token[11])
+        bbw = float(token[13])
+        bspeed = float(token[15][:-4])
+        if ndevice not in n_devices:
             continue
-        elif float(token[3]) < alpha_range[0] or float(token[3]) > alpha_range[1]:
+        elif ntype not in num_types:
             continue
-        elif float(token[5]) < seed_range[0] or float(token[5]) > seed_range[1]:
+        elif tprob not in type_probs:
             continue
-        elif float(token[7]) < ccr_range[0] or float(token[7]) > ccr_range[1]:
+        elif speed not in avg_speeds:
             continue
-        elif float(token[9]) < beta_range[0] or float(token[9]) > beta_range[1]:
+        elif bw not in avg_bws:
             continue
-        elif float(token[11].split(".")[0]) < comm_range[0] or float(token[11].split(".")[0]) > comm_range[1]:
+        elif delay not in avg_delays:
+            continue
+        elif bbw not in b_bws:
+            continue
+        elif bspeed not in b_speeds:
             continue
         else:
             res.append(fn)
@@ -459,5 +475,48 @@ def data_fn_filter(op_network_path,
     return res
 
 
+def program_fn_filter(op_path,
+                   vs=[20],
+                   alphas=[0.2],
+                   connect_probs=[0.2],
+                   avg_computes=[100],
+                   avg_bytes=[10],
+                   b_comps=[0.2],
+                   b_comms=[0.2],
+                   num_types=[5]):
 
+    fns = os.listdir(op_path)
+    res = []
+    for fn in fns:
+        if '.pkl' not in fn:
+            continue
+        token = fn.split("_")
+        v = int(token[1])
+        alpha = float(token[3])
+        connp = float(token[5])
+        ntype = int(token[7])
+        compute = int(token[9])
+        byte = int(token[11])
+        bcomp = float(token[13])
+        bcomm = float(token[15][:-4])
+        if v not in vs:
+            continue
+        elif alpha not in alphas:
+            continue
+        elif connp not in connect_probs:
+            continue
+        elif ntype not in num_types:
+            continue
+        elif compute not in avg_computes:
+            continue
+        elif byte not in avg_bytes:
+            continue
+        elif bcomp not in b_comps:
+            continue
+        elif bcomm not in b_comms:
+            continue
+        else:
+            res.append(fn)
+
+    return res
 

@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 class Program:
-    def __init__(self, P: nx.DiGraph, constraints):
+    def __init__(self, P: nx.DiGraph):
         self.P = P
         self.n_operators = self.P.number_of_nodes()
 
@@ -20,9 +20,9 @@ class Program:
         # self.data_feature_norm = torch.stack([torch.ones(self.n_operators, self.n_operators), self.data_feature_norm], dim=2)
 
 
-        self.placement_constraints = constraints
+        self.placement_constraints = [P.nodes[i]['h_constraint'] for i in range(self.n_operators)]
 
-        self.pinned = [self.placement_constraints[0][0], self.placement_constraints[self.n_operators-1][0]]
+        # self.pinned = [self.placement_constraints[0][0], self.placement_constraints[self.n_operators-1][0]]
 
         self.init_criticality()
 
@@ -38,10 +38,10 @@ class Program:
                     parallel_group.append(m)
             self.op_parallel.append(parallel_group)
 
-    def random_mapping(self, seed=0):
-        np.random.seed(seed)
-        mapping = [np.random.choice(self.placement_constraints[i]) for i in range(self.n_operators)]
-        return mapping
+    # def random_mapping(self, seed=0):
+    #     np.random.seed(seed)
+    #     mapping = [np.random.choice(self.placement_constraints[i]) for i in range(self.n_operators)]
+    #     return mapping
 
     def draw(self):
         nx.draw_networkx(self.P)

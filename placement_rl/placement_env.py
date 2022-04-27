@@ -36,6 +36,8 @@ class PlacementEnv:
         self.full_graph_action_dict = {}
         self.full_graph_node_static_feat = {}
 
+        self.placement_constraints = {}
+
         self.cardinal_graph_node_static_feat = {}
 
     def get_parents(self, program_id, node, mapping):
@@ -53,10 +55,36 @@ class PlacementEnv:
         device_set = [mapping[n] for n in program.op_parallel[node]]
         return program.op_parallel[node], device_set
 
-    def get_node_feature_dim(self):
+    def get_placement_constraints(self, program_id, network_id):
+        if program_id in self.placement_constraints:
+            if network_id in self.placement_constraints[program_id]:
+                return self.placement_constraints[program_id][network_id]
+            else:
+                self.placement_constraints[program_id][network_id] = []
+        else:
+            self.placement_constraints[program_id] = {}
+            self.placement_constraints[program_id][network_id] = []
+        constraints = self.placement_constraints[program_id][network_id]
+        network = self.networks[network_id]
+        program = self.programs[program_id]
+        for n in program.P.nodes:
+            c = program.P.nodes[n]['h_constraint']
+            constraints.append([k[0] for k in filter(lambda elem: c in elem[1], network.device_constraints.items())])
+
+        return constraints
+
+    def random_mapping(self, program_id, network_id, seed=0):
+        constraints = self.get_placement_constraints(program_id, network_id)
+        np.random.seed(seed)
+        mapping = [np.random.choice(constraints[i]) for i in range(self.programs[program_id].n_operators)]
+        return mapping
+
+    @staticmethod
+    def get_node_feature_dim():
         return len(PlacementEnv.NODE_FEATURES)
 
-    def get_edge_feature_dim(self):
+    @staticmethod
+    def get_edge_feature_dim():
         return len(PlacementEnv.EDGE_FEATURES)
 
     def get_node_feature(self, program_id, network_id, mapping, G_stats):
@@ -83,7 +111,7 @@ class PlacementEnv:
                 return 0
 
             end_time = np.array([np.mean(G_stats.nodes[p]['end_time']) for p in parents])
-            for dev in program.placement_constraints[op]:
+            for dev in self.placement_constraints[program_id][network_id][op]:
                 c_time = np.array([communication_latency(program, network, p, op, mapping[p], dev) for p in parents])
                 e[dev] = np.max(c_time + end_time)
             return min(e.values()) - np.average(G_stats.nodes[op]['start_time'])
@@ -226,6 +254,7 @@ class PlacementEnv:
         return u, v, feat
 
     def init_full_graph(self, program_id, network_id):
+        self.get_placement_constraints(program_id, network_id)
         if program_id in self.full_graph_node_dict:
             if network_id in self.full_graph_node_dict[program_id]:
                 return
@@ -242,9 +271,10 @@ class PlacementEnv:
         action_dict = self.full_graph_action_dict[program_id][network_id]
         program = self.programs[program_id]
         id = 0
+
         for n in program.P.nodes():
             node_dict[n] = {}
-            for d in program.placement_constraints[n]:
+            for d in self.placement_constraints[program_id][network_id][n]:
                 node_dict[n][d] = id
                 action_dict[id] = (n, d)
                 id += 1
