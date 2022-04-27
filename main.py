@@ -43,7 +43,7 @@ def get_args():
                         nargs='+',
                         help='list of number of devices in the network for training (default: [20])')
     parser.add_argument('--network_seeds_training',
-                        default=[0,1,2,3,4],
+                        default=[0,1],
                         type=int,
                         nargs='+',
                         help='seeds used to generate each network config (default: [0,1,2,3,4])')
@@ -90,7 +90,7 @@ def get_args():
                         help='list of number of operators in the application graph for training (default: [10, 20, 30])')
 
     parser.add_argument('--graph_seeds_training',
-                        default=[0, 1, 2, 3, 4],
+                        default=[0, 1, 2],
                         type=int,
                         nargs='+',
                         help='seeds used to generate application graphs for training (default: [0-4])')
@@ -144,7 +144,7 @@ def get_args():
                         nargs='+',
                         help='list of number of devices in the network for testing (default: [20])')
     parser.add_argument('--network_seeds_testing',
-                        default=[0, 1, 2, 3, 4],
+                        default=[20, 21],
                         type=int,
                         nargs='+',
                         help='seeds used to generate each network config (default: [0,1,2,3,4])')
@@ -185,19 +185,19 @@ def get_args():
 
     # program graph
     parser.add_argument('--vs_testing',
-                        default=[10, 20, 40],
+                        default=[20],
                         type=int,
                         nargs='+',
                         help='list of number of operators in the application graph for testing (default: [10, 20, 30])')
 
     parser.add_argument('--graph_seeds_testing',
-                        default=[0, 1, 2, 3, 4],
+                        default=[20],
                         type=int,
                         nargs='+',
                         help='seeds used to generate application graphs for testing (default: [0-4])')
 
     parser.add_argument('--init_mapping_seeds_testing',
-                        default=[0],
+                        default=[20],
                         type=int,
                         nargs='+',
                         help='seeds for determining initial mappings for testing (default: [0])')
@@ -284,9 +284,9 @@ def get_args():
 
 
     parser.add_argument('--num_testing_episodes',
-                        default=5,
+                        default=2,
                         type=int,
-                        help='number of testing episodes (default: 5)')
+                        help='number of testing episodes (default: 2)')
 
     parser.add_argument(
         '--num_tuning_episodes',

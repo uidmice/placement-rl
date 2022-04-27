@@ -145,7 +145,7 @@ def run_episodes(env,
 
     records = []
 
-    for seed, program_id, network_id in zip(seeds, program_ids, network_ids):
+    for seed, program_id, network_id, i in zip(seeds, program_ids, network_ids, range(len(seeds))):
         if use_full_graph:
             env.init_full_graph(program_id, network_id)
         total_return = 0
@@ -174,7 +174,7 @@ def run_episodes(env,
             'n_iters': currrent_stop_iter
         }
 
-        print(ep_data)
+        print(f'{i} episode: {ep_data}')
 
         start_time = time.time()
         for t in range(currrent_stop_iter):
@@ -476,6 +476,8 @@ class Experiment_on_data:
             record = []
             eval_records = []
             for i in range(self.num_train_episodes//20):
+                print('===========================================================================')
+                print(f"{i}th: RUNNING training batch. Total {self.num_train_episodes//20} batches. ")
                 train_record = run_episodes(self.train_env,
                                   self.agent,
                                   self.train_program_ids[i*20: i*20 + 20],
@@ -486,6 +488,7 @@ class Experiment_on_data:
                                   update_policy=True,
                                   save_data=False,
                                   noise=self.exp_cfg.noise)
+                print(f"{i}th: Evaluating. ")
                 test_record = run_episodes(self.test_env,
                                             self.agent,
                                             self.test_program_ids * self.exp_cfg.num_testing_episodes,
