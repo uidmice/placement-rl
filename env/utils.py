@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pickle
 import os
+import random
 
 def get_mapped_node(map, i):
     return np.where(map[i] == 1)[0][0]
@@ -16,71 +17,16 @@ def from_mapping_to_matrix(mapping, n_devices):
 def from_matrix_to_mapping(m):
     return [get_mapped_node(m, i) for i in range(m.shape[0])]
 
-def generate_network(n_devices, seed):
-    np.random.seed(seed)
 
-    fast_link = set(np.random.choice(n_devices, n_devices // 2, False))
-    slow_link = set(range(n_devices)) - fast_link
-
-    delay = np.random.uniform(5, 10, n_devices)
-    delay[list(slow_link)] = delay[list(slow_link)] + np.random.uniform(10, 20, len(slow_link))
-
-    bw = np.random.uniform(100, 200, n_devices)
-    bw[list(slow_link)] = np.random.uniform(20, 50, len(slow_link))
-
-    speed = np.random.uniform(1, 3, n_devices)
-    return delay, bw, speed
-
-
-def generate_program(n_operators, n_devices, seed, B=1000, l=100):
-    np.random.seed(seed)
-    G = nx.gnp_random_graph(n_operators - 2, 0.8, seed=seed, directed=True)
-    DAG = nx.DiGraph([(u, v) for (u, v) in G.edges() if u < v])
-    DAG = nx.relabel.convert_node_labels_to_integers(DAG, first_label=1)
-    heads = [node for node in DAG.nodes() if DAG.in_degree(node) == 0]
-    tails = [node for node in DAG.nodes() if DAG.out_degree(node) == 0]
-
-    for n in heads:
-        DAG.add_edge(0, n)
-    for n in tails:
-        DAG.add_edge(n, n_operators - 1)
-
-    constraints = {}
-    n_types = n_devices // 5
-    groups = [set() for i in range(n_types)]
-    for i in range(n_devices):
-        groups[np.random.choice(n_types)].add(i)
-    k = len(groups)
-    for e in DAG.edges:
-        DAG.edges[e]['bytes'] = np.random.uniform(B/2, B)
-    for n in DAG.nodes:
-        DAG.nodes[n]['compute'] = np.random.exponential(l)
-        group_ids = np.random.choice(k, k // 2 + (np.random.sample() > 0.5) * 1 - (np.random.sample() > 0.5) * 1)
-        constraints[n] = list(set().union(*[groups[j] for j in group_ids]))
-        if not len(constraints[n]):
-            constraints[n] = np.random.choice(n_devices, n_devices//2, replace=False).tolist()
-    constraints[0] = [np.random.choice(constraints[0])]
-    constraints[n_operators - 1] = [np.random.choice(constraints[n_operators - 1])]
-    return DAG, constraints
-
-
-# Generator based on https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=993206
-# v: number of tasks
-# alpha: shape of graph
-# out_degree: out degree of a node
-# ccr: communication to computation ratio
-# beta: range percentage of computation costs on processors
-# avg_comm: average communication cost
-# seed: random seed
 def graph_dag_structure(v,
-                      alpha,
-                      seed,
-                      save_path = None,
-                      visualize = False):
+                        alpha,
+                        seed,
+                        conn_prob=0.1,
+                        visualize=False):
     np.random.seed(seed)
 
     height_mean = np.sqrt(v) / alpha
-    height = int(np.ceil(np.random.uniform(0, 2 * height_mean)))
+    height = int(np.ceil(np.random.uniform(height_mean * 0.8, height_mean * 1.2)))
 
     width_mean = alpha * np.sqrt(v)
     widths = []
@@ -92,221 +38,180 @@ def graph_dag_structure(v,
 
     G = nx.DiGraph()
     G.add_node(0)
-    G.add_node(total_operator + 1)
     cnt = 1
     nodes = [[] for i in range(height + 2)]
     nodes[0].append(0)
     for i in range(height):
         for j in range(widths[i]):
+            nodes[i + 1].append(cnt)
             G.add_node(cnt)
-            if i == 0:
-                G.add_edge(0, cnt)
-                nodes[i + 1].append(cnt)
-            else:
-                start_idx_last_layer = sum(widths[:i - 1]) + 1
-                end_idx_last_layer = start_idx_last_layer + widths[i - 1] - 1
-                nodes[i + 1].append(cnt)
-                for node in range(start_idx_last_layer, end_idx_last_layer + 1):
-                    p = np.random.binomial(1, 0.8)
-                    if p:
-                        G.add_edge(node, cnt)
+            for k in set().union(*nodes[:i + 1]):
+                if np.random.rand() < conn_prob:
+                    G.add_edge(k, cnt)
             cnt += 1
 
     nodes[-1].append(total_operator + 1)
-    end_start_idx = sum(widths[:-1])
-    for i in range(widths[-1]):
-        node = end_start_idx + i
-        G.add_edge(node, total_operator + 1)
+    G.add_node(total_operator + 1)
 
-    # Valid checking, if any node in the middle is not connected
-    # with any node in the following layer, randomly connect
+    # make sure the depth equals height
+    critical_path = [random.choice(n) for n in nodes]
+    for x, y in zip(critical_path, critical_path[1:]):
+        G.add_edge(x, y)
+
+    # Validity checking, if any node in the middle has 0 indegree or 0 outdegree,
+    # randomly connect
     for i, layer in enumerate(nodes):
-        for node in layer:
-            if i != len(nodes) - 1:
+        if i > 0 and i < height + 1:
+            for node in layer:
                 if G.out_degree(node) == 0:
-                    choice = np.random.choice(nodes[i + 1])
-                    G.add_edge(node, choice)
-
-    for i, layer in enumerate(nodes):
-        for node in layer:
-            if i != 0:
+                    G.add_edge(node, random.choice([a for n in nodes[i + 1:] for a in n]))
                 if G.in_degree(node) == 0:
-                    choice = np.random.choice(nodes[i - 1])
-                    G.add_edge(choice, node)
+                    G.add_edge(random.choice([a for n in nodes[:i] for a in n]), node)
 
     if visualize:
         visualize_dag(G, widths, height)
-    if save_path:
-        graph_path = os.path.join(save_path,"dag_structure_{}_seed_{}_v_{}_alpha_{}.pkl".format(v,seed,v,alpha))
-        params_path = os.path.join(save_path, "dag_params_{}_seed_{}_v_{}_alpha_{}.pkl".format(v, seed,v,alpha))
-        params = {"widths": widths,
-                  "height": height}
-        save_dag(graph_path, G)
-        to_pickle(params_path, params)
+
+    widths.insert(0, 1)
+    widths.append(1)
+    height += 2
+    return G, widths, height
+
+
+def generate_graph(alpha,
+                   v,
+                   connect_prob,
+                   seed,
+                   num_types,
+                   avg_compute,
+                   avg_bytes,
+                   b_comp=0.2,
+                   b_comm=0.2):
+    G, widths, height = graph_dag_structure(v, alpha, seed, connect_prob)
+    np.random.seed(seed)
+
+    # compute requirement for each dag node
+    for n in G.nodes:
+        G.nodes[n]['compute'] = np.random.uniform(avg_compute * (1 - b_comp / 2), avg_compute * (1 + b_comp / 2))
+        G.nodes[n]['h_constraint'] = np.random.choice(range(num_types))
+
+    # Communication requirement (bytes) for each dag edge
+    for edge in G.edges:
+        G.edges[edge]['bytes'] = np.random.uniform(avg_bytes * (1 - b_comm / 2), avg_bytes * (1 + b_comm / 2))
+
+    G.graph['alpha'] = alpha
+    G.graph['v'] = v
+    G.graph['connect_prob'] = connect_prob
+    G.graph['seed'] = seed
+    G.graph['num_types'] = num_types
+    G.graph['avg_compute'] = avg_compute
+    G.graph['avg_bytes'] = avg_bytes
+    G.graph['b_comp'] = b_comp
+    G.graph['b_comm'] = b_comm
+
     return G
 
-def generate_dag_weight(graph_path,
-                        params_path,
-                        v,
-                        ccr,
-                        seed,
-                        avg_comm = 1000,
-                        save_path = None):
-    np.random.seed(seed)
-    G = load_dag(graph_path)
-    widths, height = load_dag_params(params_path)
 
-    avg_comm = np.random.normal(loc=avg_comm, scale=avg_comm / 3)
-    avg_comp = avg_comm / ccr
-
-    comps = [[] for i in range(height)]
-    for i in range(height):
-        for j in range(widths[i]):
-            comps[i].append(np.random.uniform(0, 2 * avg_comp))
-
-    comms = {}
-    for edge in G.edges:
-        comms[edge] = np.random.uniform(0, 2 * avg_comm)
-
-    if save_path:
-        weight_path = save_path + "dag_weights_{}_seed_{}.pkl".format(v, seed)
-        res = {"comps": comps,
-               "comms": comms}
-        to_pickle(weight_path, res)
-    return comps, comms
-
-def generate_dag_weight_for_heterogeneous_devices(graph_path,
-                        params_path,
-                        v,
-                        ccr,
-                        seed,
-                        beta,
-                        device_list,
-                        avg_comm = 1000,
-                        save_path = None):
-    np.random.seed(seed)
-    G = load_dag(graph_path)
-    widths, height = load_dag_params(params_path)
-
-    avg_comm = np.random.normal(loc=avg_comm, scale=avg_comm / 3)
-    avg_comp = avg_comm / ccr
-
-    comps = [[] for i in range(height)]
-    for i in range(height):
-        for j in range(widths[i]):
-            node_mean = np.random.uniform(0, 2 * avg_comp)
-            tmp = []
-            for device in range(len(device_list)):
-                tmp.append(np.random.uniform(node_mean*(1-beta/2), node_mean*(1+beta/2)))
-            comps[i].append(tmp)
-    comms = {}
-    for edge in G.edges:
-        comms[edge] = np.random.uniform(0, 2 * avg_comm)
-
-    if save_path:
-        weight_path = save_path + "dag_weights_heterogeneous_{}_seed_{}.pkl".format(v, seed)
-        res = {"comps": comps,
-               "comms": comms}
-        to_pickle(weight_path, res)
-    return comps, comms
-
-
-def generate_weights_for_heterogeneous_devices(graph_path,
-                                               params_path,
-                                               v,
-                                               ccr,
-                                               seed,
-                                               beta,
-                                               n_devices,
-                                               avg_comm=1000,
-                                               avg_speed=3,
-                                               avg_bw=200,
-                                               avg_delay=10,
-                                               save_path=None):
-    np.random.seed(seed)
-
-    G = load_dag(graph_path)
-    widths, height = load_dag_params(params_path)
-
-    avg_comm = np.random.normal(loc=avg_comm, scale=avg_comm / 3)
-    avg_comp = avg_comm / ccr
-
-    # Copmutation cost for each dag node on each device
-    # Structure: list[list[list]]
-    comps = [[] for i in range(height)]
-
-    for i in range(height):
-        for j in range(widths[i]):
-            node_mean = np.random.uniform(0, 2 * avg_comp)
-            tmp = []
-            for device in range(n_devices):
-                tmp.append(np.random.uniform(node_mean * (1 - beta / 2), node_mean * (1 + beta / 2)))
-            comps[i].append(tmp)
-
-    # Communication cost for each dag edge
-    # Structure: dict, key: edge -> cost
-    comms = {}
-    for edge in G.edges:
-        comms[edge] = np.random.uniform(0, 2 * avg_comm)
-
-    # Delay for each device
-    delay = np.random.uniform(0, 2 * avg_delay, n_devices)
-
-    # bw for each device
-    bw = np.random.uniform(0, 2 * avg_bw, n_devices)
+def generate_network(n_devices,
+                     seed,
+                     num_types=5,
+                     type_prob=0.3,
+                     avg_speed=3,
+                     avg_bw=200,
+                     avg_delay=10,
+                     b_bw=0.2,
+                     b_speed=0.2
+                     ):
+    delay = np.random.uniform(0, 2 * avg_delay, (n_devices, n_devices))
+    avg_comm = 1 / avg_bw
+    comm_speed = np.random.uniform(avg_comm * (1 - b_bw / 2), avg_comm * (1 + b_bw / 2), (n_devices, n_devices))
+    for i in range(n_devices):
+        for j in range(i, n_devices):
+            if i == j:
+                delay[i][j] = 0
+                comm_speed[i][j] = 0
+            else:
+                delay[i][j] = delay[j][i]
+                comm_speed[i][j] = comm_speed[j][i]
 
     # speed for each device
-    speed = np.random.uniform(0, 2 * avg_speed, n_devices)
+    speed = np.random.uniform(avg_speed * (1 - b_speed / 2), avg_speed * (1 + b_speed / 2), n_devices)
 
-    # Computational amount for each dag node.
-    compute = [[] for i in range(height)]
-    for i in range(height):
-        for j in range(widths[i]):
-            accum_compute = 0
-            for k in range(n_devices):
-                accum_compute += comps[i][j][k] * speed[k]
-            avg_compute = accum_compute / n_devices
-            compute[i].append(avg_compute)
-            assert (compute[i][j] > 0, "Compute should be large than 0")
+    device_constraints = {}
 
-    # Communicational bytes for each dag link
-    byte = {}
-    for edge in G.edges:
-        byte[edge] = (comms[edge] - avg_delay) * avg_bw
-        if byte[edge] < 0:
-            byte[edge] = 1
-        assert (byte[edge] > 0), "Bytes should be large than 0"
+    for i in range(n_devices):
+        device_constraints[i] = []
+        for j in range(num_types):
+            if np.random.rand() < type_prob:
+                device_constraints[i].append(j)
+        if len(device_constraints[i]) == 0:
+            device_constraints[i].append(np.random.choice(range(num_types)))
 
-    if save_path:
-        weight_path = os.path.join(save_path,
-                                   "weights_heterogeneous_v_{}_seed_{}_ccr_{}_beta_{}_ndevices_{}.pkl".format(v, seed,
-                                                                                                              ccr, beta,
-                                                                                                              n_devices))
-        res = {"comps": comps,
-               "comms": comms,
-               "delay": delay,
-               "bw": bw,
-               "speed": speed,
-               "compute": compute,
-               "byte": byte}
-        to_pickle(weight_path, res)
+    network = {}
+    network["delay"] = delay
+    network["comm_speed"] = comm_speed
+    network["speed"] = speed
+    network["device_constraints"] = device_constraints
+    network['para'] = {}
 
+    network['para']['n_devices'] = n_devices
+    network['para']["seed"] = seed
+    network['para']["num_types"] = num_types
+    network['para']["type_prob"] = type_prob
+    network['para']["avg_speed"] = avg_speed
+    network['para']['avg_bw'] = avg_bw
+    network['para']['avg_delay'] = avg_delay
+    network['para']["b_bw"] = b_bw
+    network['para']['b_speed'] = b_speed
 
-def load_graph_with_weights(graph_path, weight_path, params_path):
-    G  = load_dag(graph_path)
-    comms, comps = load_weights(weight_path)
-    widths, height = load_dag_params(params_path)
+    return network
 
-    cnt = 1
-    for i in range(height):
-        for j in range(widths[i]):
-            G.nodes[cnt]['compute'] = comps[i][j]
-            cnt += 1
-
-    for e in G.edges:
-        G.edges[e]['bytes'] = comms[e]
-
-    return G
+#
+# def generate_network(n_devices, seed):
+#     np.random.seed(seed)
+#
+#     fast_link = set(np.random.choice(n_devices, n_devices // 2, False))
+#     slow_link = set(range(n_devices)) - fast_link
+#
+#     delay = np.random.uniform(5, 10, n_devices)
+#     delay[list(slow_link)] = delay[list(slow_link)] + np.random.uniform(10, 20, len(slow_link))
+#
+#     bw = np.random.uniform(100, 200, n_devices)
+#     bw[list(slow_link)] = np.random.uniform(20, 50, len(slow_link))
+#
+#     speed = np.random.uniform(1, 3, n_devices)
+#     return delay, bw, speed
+#
+#
+# def generate_program(n_operators, n_devices, seed, B=1000, l=100):
+#     np.random.seed(seed)
+#     G = nx.gnp_random_graph(n_operators - 2, 0.8, seed=seed, directed=True)
+#     DAG = nx.DiGraph([(u, v) for (u, v) in G.edges() if u < v])
+#     DAG = nx.relabel.convert_node_labels_to_integers(DAG, first_label=1)
+#     heads = [node for node in DAG.nodes() if DAG.in_degree(node) == 0]
+#     tails = [node for node in DAG.nodes() if DAG.out_degree(node) == 0]
+#
+#     for n in heads:
+#         DAG.add_edge(0, n)
+#     for n in tails:
+#         DAG.add_edge(n, n_operators - 1)
+#
+#     constraints = {}
+#     n_types = n_devices // 5
+#     groups = [set() for i in range(n_types)]
+#     for i in range(n_devices):
+#         groups[np.random.choice(n_types)].add(i)
+#     k = len(groups)
+#     for e in DAG.edges:
+#         DAG.edges[e]['bytes'] = np.random.uniform(B/2, B)
+#     for n in DAG.nodes:
+#         DAG.nodes[n]['compute'] = np.random.exponential(l)
+#         group_ids = np.random.choice(k, k // 2 + (np.random.sample() > 0.5) * 1 - (np.random.sample() > 0.5) * 1)
+#         constraints[n] = list(set().union(*[groups[j] for j in group_ids]))
+#         if not len(constraints[n]):
+#             constraints[n] = np.random.choice(n_devices, n_devices//2, replace=False).tolist()
+#     constraints[0] = [np.random.choice(constraints[0])]
+#     constraints[n_operators - 1] = [np.random.choice(constraints[n_operators - 1])]
+#     return DAG, constraints
 
 
 def to_pickle(save_path, res):

@@ -73,9 +73,10 @@ class PlacementEnv:
 
         return constraints
 
-    def random_mapping(self, program_id, network_id, seed=0):
+    def random_mapping(self, program_id, network_id, seed=-1):
         constraints = self.get_placement_constraints(program_id, network_id)
-        np.random.seed(seed)
+        if seed > -1:
+            np.random.seed(seed)
         mapping = [np.random.choice(constraints[i]) for i in range(self.programs[program_id].n_operators)]
         return mapping
 

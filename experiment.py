@@ -529,6 +529,8 @@ class Experiment_on_data:
             self.agent.embedding.load_state_dict(torch.load(os.path.join(self.logdir, 'embedding.pk')))
 
             if self.exp_cfg.num_tuning_episodes:
+                print('===========================================================================')
+                print(f"RUNNING {self.exp_cfg.num_tuning_episodes} tuning episodes for network {network_id}/program {program_id}.")
                 run_episodes(self.test_env, self.agent,
                              [program_id] * self.exp_cfg.num_tuning_episodes,
                              [network_id] * self.exp_cfg.num_tuning_episodes,
@@ -542,7 +544,8 @@ class Experiment_on_data:
                              save_dir=self.logdir,
                              save_name=f'tune_program_{program_id}_network_{network_id}_seed_{seed}',
                              noise=self.exp_cfg.noise)
-
+            print('===========================================================================')
+            print(f"RUNNING {self.exp_cfg.num_testing_episodes} testing episodes for network {network_id}/program {program_id}.")
             run_episodes(self.test_env, self.agent,
                          [program_id] * self.exp_cfg.num_testing_episodes,
                          [network_id] * self.exp_cfg.num_testing_episodes,
@@ -557,19 +560,19 @@ class Experiment_on_data:
                              save_name=f'test_explore_program_{program_id}_network_{network_id}_seed_{seed}',
                              noise=self.exp_cfg.noise)
 
-            run_episodes(self.test_env, self.agent,
-                         [program_id] * self.exp_cfg.num_testing_episodes,
-                         [network_id] * self.exp_cfg.num_testing_episodes,
-                             [seed] * self.exp_cfg.num_testing_episodes,
-                             use_full_graph=not self.exp_cfg.use_op_selection,
-                             use_bip_connection=False,
-                             explore=False,
-                             max_iter=self.exp_cfg.max_iterations_per_episode,
-                             update_policy=False,
-                             save_data=True,
-                             save_dir=self.logdir,
-                             save_name=f'test_noexp_program_{program_id}_network_{network_id}_seed_{seed}',
-                             noise=self.exp_cfg.noise)
+            # run_episodes(self.test_env, self.agent,
+            #              [program_id] * self.exp_cfg.num_testing_episodes,
+            #              [network_id] * self.exp_cfg.num_testing_episodes,
+            #                  [seed] * self.exp_cfg.num_testing_episodes,
+            #                  use_full_graph=not self.exp_cfg.use_op_selection,
+            #                  use_bip_connection=False,
+            #                  explore=False,
+            #                  max_iter=self.exp_cfg.max_iterations_per_episode,
+            #                  update_policy=False,
+            #                  save_data=True,
+            #                  save_dir=self.logdir,
+            #                  save_name=f'test_noexp_program_{program_id}_network_{network_id}_seed_{seed}',
+            #                  noise=self.exp_cfg.noise)
 
 
 # def train(env,
