@@ -126,7 +126,7 @@ def run_episodes(env,
                  use_bip_connection=False,
                  multi_selection=False,
                  explore=True,
-                 max_iter=50,
+                 num_of_placement_samples=50,
                  use_baseline=True,
                  update_policy=True,
                  save_data=False,
@@ -139,18 +139,14 @@ def run_episodes(env,
     assert isinstance(network_ids, list)
     assert len(seeds) == len(program_ids) and len(seeds) == len(network_ids)
 
-
-    currrent_stop_iter = max_iter
-
     records = []
 
     for seed, program_id, network_id, i in zip(seeds, program_ids, network_ids, range(len(seeds))):
         if use_full_graph:
             env.init_full_graph(program_id, network_id)
-        total_return = 0
         program = env.programs[program_id]
         network = env.networks[network_id]
-        cur_mapping = env.random_mapping(program_id, network_id, seed)
+
 
         if use_full_graph:
             action_dict = env.full_graph_action_dict[program_id][network_id]
@@ -160,23 +156,34 @@ def run_episodes(env,
             mask = torch.ones(program.n_operators).to(device)
             mask[0] = mask[-1] = 0
 
-        last_latency, path, G_stats = env.simulate(program_id, network_id, cur_mapping, noise)
-
-        ep_latencies = [last_latency]
-        ep_actions = []
-        ep_rewards = []
-        ep_data = {
+        case_data = {
             'network_id': network_id,
             'program_id': program_id,
             'init_seed': seed,
             'noise': noise,
-            'n_iters': currrent_stop_iter
+            'num_of_samples': num_of_placement_samples,
+            'episodes': [],
+            'sampled_placement': [],
+            'latency_trace': []
         }
 
-        print(f'{i} episode: {ep_data}')
+        print(f'{i}th case: {case_data }')
+
+        new_episode = True
 
         start_time = time.time()
-        for t in range(currrent_stop_iter):
+        for t in range(num_of_placement_samples):
+            if new_episode:
+                ep_data = {}
+                ep_data['actions'] = []
+                ep_data['rewards'] = []
+                ep_data['ep_return'] = 0
+
+                cur_mapping = env.random_mapping(program_id, network_id, seed)
+                last_latency, path, G_stats = env.simulate(program_id, network_id, cur_mapping, noise)
+
+                new_episode = False
+
             if use_full_graph:
                 g = env.get_full_graph(program_id, network_id, cur_mapping, G_stats, path, use_bip_connection).to(device)
 
@@ -188,37 +195,35 @@ def run_episodes(env,
                 if multi_selection:
                     action_map = agent.multi_op_dev_selection(g, node_dict)
                     cur_mapping = action_map
-                    ep_actions.append(action_map)
+                    ep_data['actions'].append(action_map)
                 else:
                     s, action = agent.op_dev_selection(g, action_dict, mask)
                     cur_mapping[s] = action
-                    ep_actions.append([s, action])
+                    ep_data['actions'].append([s, action])
             else:
                 g = env.get_cardinal_graph(program_id, network_id, cur_mapping, G_stats, path).to(device)
                 s = agent.op_selection(g, mask)
                 action = agent.dev_selection_est(program, network, cur_mapping, G_stats, s,
                                                  program.placement_constraints[s])
                 cur_mapping[s] = action
-                ep_actions.append([s, action])
-
+                ep_data['actions'].append([s, action])
 
             latency, path, G_stats = env.simulate(program_id, network_id, cur_mapping, noise)
             reward = (last_latency - latency) / 10
             last_latency = latency
 
-            ep_latencies.append(latency)
+            case_data['sampled_placement'].append(cur_mapping.copy())
+            case_data['latency_trace'].append(latency)
+            ep_data['rewards'].append(reward)
             agent.saved_rewards.append(reward)
-            ep_rewards.append(reward)
-            total_return = reward + total_return * agent.gamma
-        agent.finish_episode(update_network=update_policy, use_baseline=use_baseline)
-        ep_data['run_time'] = time.time() - start_time
-        ep_data['final_mapping'] = cur_mapping
-        ep_data['ep_return'] = total_return
-        ep_data['latency_trace'] = ep_latencies
-        ep_data['actions'] = ep_actions
-        ep_data['rewards'] = ep_rewards
+            ep_data['ep_return'] = reward + ep_data['ep_return'] * agent.gamma
 
-        records.append(ep_data)
+            end_episode = (t == num_of_placement_samples - 1)
+            if end_episode:
+                agent.finish_episode(update_network=update_policy, use_baseline=use_baseline)
+                case_data['episodes'].append(ep_data)
+        case_data ['run_time'] = time.time() - start_time
+        records.append(case_data)
 
     if save_data:
         logname = os.path.join(
@@ -311,7 +316,7 @@ def run_episodes(env,
 #                                   self.train_network_ids[i*20: i*20 + 20],
 #                                   self.train_init_seeds[i*20: i*20 + 20],
 #                                   use_full_graph=full_graph,
-#                                   max_iter = self.exp_cfg.max_iterations_per_episode,
+#                                   num_of_placement_samples = self.exp_cfg.num_iterations_per_episode,
 #                                   update_policy=True,
 #                                   save_data=False,
 #                                   noise=self.exp_cfg.noise)
@@ -321,7 +326,7 @@ def run_episodes(env,
 #                                             self.test_network_ids * self.exp_cfg.testing_episodes,
 #                                             self.test_init_seeds * self.exp_cfg.testing_episodes,
 #                                             use_full_graph=full_graph,
-#                                             max_iter=self.exp_cfg.max_iterations_per_episode,
+#                                             num_of_placement_samples=self.exp_cfg.num_iterations_per_episode,
 #                                             update_policy=False,
 #                                             save_data=False,
 #                                             noise=self.exp_cfg.noise)
@@ -338,7 +343,7 @@ def run_episodes(env,
 #                                   self.train_network_ids,
 #                                   self.train_init_seeds,
 #                                   use_full_graph=full_graph,
-#                                   max_iter=self.exp_cfg.max_iterations_per_episode,
+#                                   num_of_placement_samples=self.exp_cfg.num_iterations_per_episode,
 #                                   update_policy=True,
 #                                   save_data=True,
 #                                   save_dir=self.logdir,
@@ -362,7 +367,7 @@ def run_episodes(env,
 #                              use_full_graph=not self.exp_cfg.use_op_selection,
 #                              use_bip_connection=False,
 #                              explore=True,
-#                              max_iter=self.exp_cfg.max_iterations_per_episode,
+#                              num_of_placement_samples=self.exp_cfg.num_iterations_per_episode,
 #                              update_policy=True,
 #                              save_data=True,
 #                              save_dir=self.logdir,
@@ -376,7 +381,7 @@ def run_episodes(env,
 #                              use_full_graph=not self.exp_cfg.use_op_selection,
 #                              use_bip_connection=False,
 #                              explore=True,
-#                              max_iter=self.exp_cfg.max_iterations_per_episode,
+#                              num_of_placement_samples=self.exp_cfg.num_iterations_per_episode,
 #                              update_policy=False,
 #                              save_data=True,
 #                              save_dir=self.logdir,
@@ -390,7 +395,7 @@ def run_episodes(env,
 #                              use_full_graph=not self.exp_cfg.use_op_selection,
 #                              use_bip_connection=False,
 #                              explore=False,
-#                              max_iter=self.exp_cfg.max_iterations_per_episode,
+#                              num_of_placement_samples=self.exp_cfg.num_iterations_per_episode,
 #                              update_policy=False,
 #                              save_data=True,
 #                              save_dir=self.logdir,
@@ -415,11 +420,10 @@ class Experiment_on_data:
         pickle.dump(self.exp_cfg,
                     open(os.path.join(self.logdir, "args.pkl"), "wb"))
 
-
         network_path = self.exp_cfg.device_net_path
         op_path = self.exp_cfg.op_net_path
 
-        train_networks, train_programs, test_networks, test_programs, para_set = load_data_from_dir(network_path, op_path, self.exp_cfg)
+        train_networks, train_programs, test_networks, test_programs, para_set = load_data_from_dir(network_path, op_path, exp_config)
         self.train_networks = train_networks
         self.train_programs = train_programs
         self.test_networks = test_networks
@@ -427,8 +431,8 @@ class Experiment_on_data:
 
         pickle.dump(para_set, open(os.path.join(self.logdir, "data_para.pkl"), "wb"))
 
-        self.train_env = PlacementEnv(self.train_networks, self.train_programs)
-        self.test_env = PlacementEnv(self.test_networks, self.test_programs)
+        self.train_env = PlacementEnv(self.train_networks, self.train_programs, exp_config.memory_capacity)
+        self.test_env = PlacementEnv(self.test_networks, self.test_programs, exp_config.memory_capacity)
 
 
         episode_per_setting = self.exp_cfg.num_episodes_per_setting
@@ -483,7 +487,7 @@ class Experiment_on_data:
                                   self.train_network_ids[i*20: i*20 + 20],
                                   self.train_init_seeds[i*20: i*20 + 20],
                                   use_full_graph=full_graph,
-                                  max_iter = self.exp_cfg.max_iterations_per_episode,
+                                  num_of_placement_samples = self.exp_cfg.num_iterations_per_episode,
                                   update_policy=True,
                                   save_data=False,
                                   noise=self.exp_cfg.noise)
@@ -494,7 +498,7 @@ class Experiment_on_data:
                                             self.test_network_ids * self.exp_cfg.num_testing_episodes,
                                             self.test_init_seeds * self.exp_cfg.num_testing_episodes,
                                             use_full_graph=full_graph,
-                                            max_iter=self.exp_cfg.max_iterations_per_episode,
+                                            num_of_placement_samples=self.exp_cfg.num_iterations_per_episode,
                                             update_policy=False,
                                             save_data=False,
                                             noise=self.exp_cfg.noise)
@@ -511,7 +515,7 @@ class Experiment_on_data:
                                   self.train_network_ids,
                                   self.train_init_seeds,
                                   use_full_graph=full_graph,
-                                  max_iter=self.exp_cfg.max_iterations_per_episode,
+                                  num_of_placement_samples=self.exp_cfg.num_iterations_per_episode,
                                   update_policy=True,
                                   save_data=True,
                                   save_dir=self.logdir,
@@ -537,7 +541,7 @@ class Experiment_on_data:
                              use_full_graph=not self.exp_cfg.use_op_selection,
                              use_bip_connection=False,
                              explore=True,
-                             max_iter=self.exp_cfg.max_iterations_per_episode,
+                             num_of_placement_samples=self.exp_cfg.num_iterations_per_episode,
                              update_policy=True,
                              save_data=True,
                              save_dir=self.logdir,
@@ -552,7 +556,7 @@ class Experiment_on_data:
                              use_full_graph=not self.exp_cfg.use_op_selection,
                              use_bip_connection=False,
                              explore=True,
-                             max_iter=self.exp_cfg.max_iterations_per_episode,
+                             num_of_placement_samples=self.exp_cfg.num_iterations_per_episode,
                              update_policy=False,
                              save_data=True,
                              save_dir=self.logdir,
@@ -566,7 +570,7 @@ class Experiment_on_data:
             #                  use_full_graph=not self.exp_cfg.use_op_selection,
             #                  use_bip_connection=False,
             #                  explore=False,
-            #                  max_iter=self.exp_cfg.max_iterations_per_episode,
+            #                  num_of_placement_samples=self.exp_cfg.num_iterations_per_episode,
             #                  update_policy=False,
             #                  save_data=True,
             #                  save_dir=self.logdir,
@@ -578,7 +582,7 @@ class Experiment_on_data:
 #           agent,
 #           init_mapping,
 #           episodes,
-#           max_iter=50,
+#           num_of_placement_samples=50,
 #           update_op_net=True,
 #           update_dev_net=True,
 #           greedy_dev_selection=True,
@@ -597,7 +601,7 @@ class Experiment_on_data:
 #
 #     mask_dev = torch.zeros(network.n_devices).to(device)
 #
-#     currrent_stop_iter = max_iter
+#     currrent_stop_iter = num_of_placement_samples
 #     if short_earlier_ep:
 #         currrent_stop_iter = early_stop
 #
