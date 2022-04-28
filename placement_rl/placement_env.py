@@ -4,19 +4,17 @@ import dgl
 import torch
 
 from env.latency import *
+from placement_rl.memory_buffer import Buffer
 
 
 class PlacementEnv:
     NODE_FEATURES = ['compute', 'comp_rate', 'criticality', 'start_time_potential']
     EDGE_FEATURES = ['bytes', 'comm_delay', 'comm_rate', 'criticality']
 
-    def __init__(self, networks: list, programs: list, seed=0):
+    def __init__(self, networks: list, programs: list, memory_size=5):
 
         self.networks = networks
         self.programs = programs
-
-        n_devices = [network.n_devices for network in networks]
-        n_operators = [program.n_operators for program in programs]
 
         self.node_feature_mean = {'compute': torch.mean(torch.cat([p.op_compute for p in programs])),
                                   'comp_rate': torch.mean(torch.cat([n.comp_rate for n in networks]))}
@@ -30,13 +28,15 @@ class PlacementEnv:
         self.edge_feature_std = {'bytes': torch.std(torch.cat([torch.flatten(p.data_bytes) for p in programs])),
                                  'comm_delay': torch.std(torch.cat([torch.flatten(n.comm_delay) for n in networks])),
                                  'comm_rate': torch.std(torch.cat([torch.flatten(n.comm_rate) for n in networks]))}
-        self.seed = seed
 
         self.full_graph_node_dict = {}
         self.full_graph_action_dict = {}
         self.full_graph_node_static_feat = {}
 
         self.placement_constraints = {}
+
+        self.placement_buffer = {}
+        self.memory_size = memory_size
 
         self.cardinal_graph_node_static_feat = {}
 
@@ -72,6 +72,24 @@ class PlacementEnv:
             constraints.append([k[0] for k in filter(lambda elem: c in elem[1], network.device_constraints.items())])
 
         return constraints
+
+    def get_memory_buffer(self, program_id, network_id):
+        if program_id not in self.placement_buffer:
+            self.placement_buffer[program_id] = {}
+            self.placement_buffer[program_id][network_id] = Buffer(capacity=self.memory_size)
+        else:
+            if network_id not in self.placement_buffer[program_id]:
+                self.placement_buffer[program_id][network_id] = Buffer(capacity=self.memory_size)
+        return self.placement_buffer[program_id][network_id]
+
+    def push_to_buffer(self, program_id, network_id, mapping, latency):
+        buffer = self.get_memory_buffer(program_id, network_id)
+        buffer.push(mapping, latency)
+        return buffer
+
+    def sample_from_buffer(self, program_id, network_id):
+        buffer = self.get_memory_buffer(program_id, network_id)
+        return buffer.sample()
 
     def random_mapping(self, program_id, network_id, seed=-1):
         constraints = self.get_placement_constraints(program_id, network_id)
@@ -280,7 +298,6 @@ class PlacementEnv:
                 action_dict[id] = (n, d)
                 id += 1
 
-
     def get_full_graph(self, program_id, network_id, mapping, G_stats, critical_path=None, bip_connection=False):
         self.programs[program_id].update_criticality(critical_path)
         self.init_full_graph(program_id, network_id)
@@ -316,50 +333,3 @@ class PlacementEnv:
         network = self.networks[network_id]
         G, l, path = simulate(mapping, program, network, noise, repeat)
         return l, path, G
-
-    # def get_feature_device(self, node, device):
-    #     feature_parent = np.zeros(self.network.get_edge_feature_dim())
-    #     op, d = self.get_parents(node)
-    #     if len(op)>0:
-    #         a = np.array([self.program.get_relative_criticality(node, n) for n in op], dtype=np.float64)
-    #         a /= np.sum(a)
-    #         for i in range(len(op)):
-    #             feature_parent += a[i] * self.network.get_edge_feature(d[i], device)
-    #
-    #     feature_child = np.zeros(self.network.get_edge_feature_dim())
-    #     op, d = self.get_children(node)
-    #     if len(op) > 0:
-    #         a = np.array([self.program.get_relative_criticality(node, n) for n in op], dtype=np.float64)
-    #         a /= np.sum(a)
-    #         for i in range(len(op)):
-    #             feature_child += a[i] * self.network.get_edge_feature(device, d[i])
-    #
-    #     feature_para = np.zeros(self.program.get_node_feature_dim())
-    #     op, d = self.get_parallel(node)
-    #     for i in range(len(d)):
-    #         if d[i] == device:
-    #             feature_para += self.program.get_node_feature(op[i])
-    #
-    #     return np.concatenate((feature_parent, feature_child, feature_para, self.network.get_node_feature(device)), axis=None)
-    #
-    # def get_state(self, node):
-    #     state = [self.get_feature_device(node, d) for d in range(self.n_devices)]
-    #     state.append(self.program.get_node_feature(node))
-    #     return torch.from_numpy(np.concatenate(state)).float()
-    #
-    # def get_state_dim(self):
-    #     return (2 * self.network.get_edge_feature_dim()
-    #             + self.program.get_node_feature_dim()
-    #             + self.network.get_node_feature_dim()) * self.n_devices + self.program.get_node_feature_dim()
-    #
-    #
-    # def step(self, node, action):
-    #     assert action in self.program.placement_constraints[node]
-    #     self.mapping[node] = action
-    #
-    #     latency, cpath = evaluate_maxP(from_mapping_to_matrix(self.mapping, self.n_devices), self.program, self.network)
-    #
-    #     self.program.update_criticality(cpath)
-    #     self.latency = latency
-    #
-    #     return latency

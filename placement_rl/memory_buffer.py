@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import random
 
@@ -36,6 +38,31 @@ import random
 #             torch.FloatTensor(self.reward[ind]).to(self.device),
 #             torch.FloatTensor(self.not_done[ind]).to(self.device)
 #         )
+class Buffer:
+    def __init__(self, capacity=10):
+
+        if capacity > 0 and capacity < math.inf:
+            self.capacity = capacity
+        else:
+            self.capacity = math.inf
+
+        self.buffer = []
+        self.rank = []
+
+    def push(self, item, rank):
+        if len(self.buffer) < self.capacity:
+            self.buffer.append(item)
+            self.rank.append(rank)
+        else:
+            idx = self.rank.index(max(self.rank))
+            self.buffer[idx] = item
+            self.rank[idx] = rank
+
+    def sample(self):
+        if len(self.buffer):
+            return random.sample(self.buffer, 1)[0]
+        else:
+            return None
 
 
 class ReplayBuffer:
