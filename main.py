@@ -1,6 +1,13 @@
 from experiment import Experiment_on_data
 
-import argparse
+import argparse, os, json
+
+def validate_file(f):
+    if not os.path.exists(f):
+        # Argparse uses the ArgumentTypeError to give a rejection message like:
+        # error: argument input: x does not exist
+        raise argparse.ArgumentTypeError("{0} does not exist".format(f))
+    return json.load(open(f, 'rb'))
 
 def get_args():
     parser = argparse.ArgumentParser(description='Placement Experiment Arguments')
@@ -34,6 +41,11 @@ def get_args():
                         default=5,
                         type=int,
                         help='Number of hardware types for placement constraint')
+
+    parser.add_argument("-p", "--data_parameters",
+                        type=validate_file,
+                        default='parameters.txt',
+                        help="json text file specifying the training/testing dataset parameters", metavar="FILE")
 
 ### Training dataset ###
     # device network
@@ -96,10 +108,10 @@ def get_args():
                         help='seeds used to generate application graphs for training (default: [0-4])')
 
     parser.add_argument('--init_mapping_seeds_training',
-                        default=[0],
+                        default=[-1],
                         type=int,
                         nargs='+',
-                        help='seeds for determining initial mappings for training (default: [0])')
+                        help='seeds for determining initial mappings for training. -1 for random mapping initialization (default: [-1])')
 
     parser.add_argument("--connect_probability_training",
                         default=[0.2],
@@ -262,15 +274,20 @@ def get_args():
                         default=0,
                         help='number of training episodes for each program-network-initial mapping')
 
-    parser.add_argument('--max_iterations_per_episode',
+    parser.add_argument('--num_iterations_per_episode',
                         default=50,
                         type=int,
-                        help='max number of iterations per episode (default 50)')
+                        help='number of iterations per episode (default 50)')
 
     parser.add_argument('--num_training_episodes',
                         default=1000,
                         type=int,
                         help='total number of training episodes if episode_per_program is not specified (default: 1000)')
+
+    parser.add_argument('--memory_capacity',
+                        default=10,
+                        type=int,
+                        help='capacity of the memory buffer for storing placement  (default: 10)')
 
 
     parser.add_argument('--use_op_selection',
