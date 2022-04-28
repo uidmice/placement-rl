@@ -1,4 +1,4 @@
-from experiment import Experiment, Experiment_on_data
+from experiment import Experiment_on_data
 
 import argparse
 
