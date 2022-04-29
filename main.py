@@ -1,4 +1,4 @@
-from experiment import Experiment_on_data
+from experiment import Experiment_on_data, Experiment_placeto
 
 import argparse, os, json
 
@@ -90,8 +90,10 @@ def get_args():
 
 
     parser.add_argument('--use_op_selection',
-                        action='store_true',
+                        default=False,
                         help='use two-step heuristic method (operator selection network + est device selection)')
+                        # action='store_true',
+
 
     parser.add_argument('--eval',
                         action='store_true',
@@ -116,6 +118,7 @@ if __name__ == '__main__':
     print(exp_cfg)
 
     # experiment = Experiment(exp_cfg)
-    experiment = Experiment_on_data(exp_cfg)
+    # experiment = Experiment_on_data(exp_cfg)
+    experiment = Experiment_placeto(exp_cfg)
     experiment.train()
     experiment.test()
