@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import random
 import time
 import datetime
-import itertools
+import itertools, json
 
 
 from baseline import exhaustive, random_placement, heft, random_op_greedy_dev, random_op_est_dev
@@ -23,93 +23,201 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def load_data_from_dir(network_path, program_path, exp_cfg):
+    network_para_train = exp_cfg.data_parameters['training']['networks']
+    program_para_train = exp_cfg.data_parameters['training']['programs']
+    network_para_test = exp_cfg.data_parameters['testing']['networks']
+    program_para_test = exp_cfg.data_parameters['testing']['programs']
 
     #load train data
-    network_fns_train = network_fn_filter(network_path,
-                                    n_devices=exp_cfg.num_devices_training,
-                                    type_probs=exp_cfg.type_constraint_prob_training,
-                                   avg_speeds=exp_cfg.compute_speed_training,
-                                   avg_bws=exp_cfg.bw_training,
-                                   avg_delays=exp_cfg.delay_training,
-                                   b_bws=exp_cfg.beta_bw_training,
-                                   b_speeds=exp_cfg.beta_speed_training,
-                                   num_types=[exp_cfg.num_of_constraint_types])
-
-    program_fns_train = program_fn_filter(program_path,
-                                          vs=exp_cfg.vs_training,
-                                          alphas=exp_cfg.alphas_training,
-                                          connect_probs=exp_cfg.connect_probability_training,
-                                          avg_computes=exp_cfg.computes_training,
-                                          avg_bytes=exp_cfg.bytes_training,
-                                          b_comps=exp_cfg.beta_compute_training,
-                                          b_comms=exp_cfg.beta_byte_training,
-                                          num_types=[exp_cfg.num_of_constraint_types])
-
     train_networks = []
     train_network_para = {}
     idx = 0
-    for fn in network_fns_train:
-        networks = load_pickle(os.path.join(network_path, fn))
-        for seed in exp_cfg.network_seeds_training:
-            net_data = networks[seed]
-            train_networks.append(FullNetwork(net_data['delay'], net_data['comm_speed'], net_data['speed'], net_data['device_constraints']))
-            train_network_para[idx] = net_data['para']
-            idx += 1
+    for para in network_para_train:
+        network_fns_train = network_fn_filter(network_path,
+                                    n_devices=para['num_of_devices'],
+                                    type_probs=para['constraint_prob'],
+                                   avg_speeds=para['compute_speed'],
+                                   avg_bws=para['bw'],
+                                   avg_delays=para['delay'],
+                                   b_bws=para['beta_bw'],
+                                   b_speeds=para['beta_speed'],
+                                   num_types=[exp_cfg.data_parameters['num_of_types']])
+        for fn in network_fns_train:
+            networks = load_pickle(os.path.join(network_path, fn))
+            for seed in para['seed']:
+                net_data = networks[seed]
+                train_networks.append(FullNetwork(net_data['delay'], net_data['comm_speed'], net_data['speed'],
+                                                  net_data['device_constraints']))
+                train_network_para[idx] = net_data['para']
+                idx += 1
+
 
     train_programs = []
     train_program_para = {}
     idx = 0
-    for fn in program_fns_train:
-        programs = load_pickle(os.path.join(program_path, fn))
-        for seed in exp_cfg.graph_seeds_training:
-            G = programs[seed]
-            train_programs.append(Program(G))
-            train_program_para[idx] = G.graph
-            idx += 1
+    for para in program_para_train:
+        program_fns_train = program_fn_filter(program_path,
+                                          vs=para['v'],
+                                          alphas=para['alpha'],
+                                          connect_probs=para['conn_prob'],
+                                          avg_computes=para['compute'],
+                                          avg_bytes=para['bytes'],
+                                          b_comps=para['bete_compute'],
+                                          b_comms=para['beta_byte'],
+                                          num_types=[exp_cfg.data_parameters['num_of_types']])
+
+
+
+
+        for fn in program_fns_train:
+            programs = load_pickle(os.path.join(program_path, fn))
+            for seed in para['seed']:
+                G = programs[seed]
+                train_programs.append(Program(G))
+                train_program_para[idx] = G.graph
+                idx += 1
 
 
     # load test data
-    network_fns_test = network_fn_filter(network_path,
-                                    n_devices=exp_cfg.num_devices_testing,
-                                    type_probs=exp_cfg.type_constraint_prob_testing,
-                                   avg_speeds=exp_cfg.compute_speed_testing,
-                                   avg_bws=exp_cfg.bw_testing,
-                                   avg_delays=exp_cfg.delay_testing,
-                                   b_bws=exp_cfg.beta_bw_testing,
-                                   b_speeds=exp_cfg.beta_speed_testing,
-                                   num_types=[exp_cfg.num_of_constraint_types])
-
-    program_fns_test = program_fn_filter(program_path,
-                                          vs=exp_cfg.vs_testing,
-                                          alphas=exp_cfg.alphas_testing,
-                                          connect_probs=exp_cfg.connect_probability_testing,
-                                          avg_computes=exp_cfg.computes_testing,
-                                          avg_bytes=exp_cfg.bytes_testing,
-                                          b_comps=exp_cfg.beta_compute_testing,
-                                          b_comms=exp_cfg.beta_byte_testing,
-                                          num_types=[exp_cfg.num_of_constraint_types])
-
     test_networks = []
     test_network_para = {}
     idx = 0
-    for fn in network_fns_test:
-        networks = load_pickle(os.path.join(network_path, fn))
-        for seed in exp_cfg.network_seeds_testing:
-            net_data = networks[seed]
-            test_networks.append(FullNetwork(net_data['delay'], net_data['comm_speed'], net_data['speed'], net_data['device_constraints']))
-            test_network_para[idx] = net_data['para']
-            idx += 1
+    for para in network_para_test:
+        network_fns_train = network_fn_filter(network_path,
+                                              n_devices=para['num_of_devices'],
+                                              type_probs=para['constraint_prob'],
+                                              avg_speeds=para['compute_speed'],
+                                              avg_bws=para['bw'],
+                                              avg_delays=para['delay'],
+                                              b_bws=para['beta_bw'],
+                                              b_speeds=para['beta_speed'],
+                                              num_types=[exp_cfg.data_parameters['num_of_types']])
+        for fn in network_fns_train:
+            networks = load_pickle(os.path.join(network_path, fn))
+            for seed in para['seed']:
+                net_data = networks[seed]
+                train_networks.append(FullNetwork(net_data['delay'], net_data['comm_speed'], net_data['speed'],
+                                                  net_data['device_constraints']))
+                train_network_para[idx] = net_data['para']
+                idx += 1
 
     test_programs = []
     test_program_para = {}
     idx = 0
-    for fn in program_fns_test:
-        programs = load_pickle(os.path.join(program_path, fn))
-        for seed in exp_cfg.graph_seeds_testing:
-            G = programs[seed]
-            test_programs.append(Program(G))
-            test_program_para[idx] = G.graph
-            idx += 1
+    for para in program_para_test:
+        program_fns_train = program_fn_filter(program_path,
+                                              vs=para['v'],
+                                              alphas=para['alpha'],
+                                              connect_probs=para['conn_prob'],
+                                              avg_computes=para['compute'],
+                                              avg_bytes=para['bytes'],
+                                              b_comps=para['bete_compute'],
+                                              b_comms=para['beta_byte'],
+                                              num_types=[exp_cfg.data_parameters['num_of_types']])
+
+        for fn in program_fns_train:
+            programs = load_pickle(os.path.join(program_path, fn))
+            for seed in para['seed']:
+                G = programs[seed]
+                train_programs.append(Program(G))
+                train_program_para[idx] = G.graph
+                idx += 1
+
+    para_set = {'test_program': test_program_para,
+                'test_network': test_network_para,
+                'train_program': train_program_para,
+                'train_network': train_network_para}
+    return train_networks, train_programs, test_networks, test_programs, para_set
+
+def generate_data(exp_cfg):
+    network_para_train = exp_cfg.data_parameters['training']['networks']
+    program_para_train = exp_cfg.data_parameters['training']['programs']
+    network_para_test = exp_cfg.data_parameters['testing']['networks']
+    program_para_test = exp_cfg.data_parameters['testing']['programs']
+
+    #generate train data
+    train_networks = []
+    train_network_para = {}
+    idx = 0
+    for para in network_para_train:
+        networks = generate_networks(n_devices=para['num_of_devices'],
+                                    type_probs=para['constraint_prob'],
+                                   avg_speeds=para['compute_speed'],
+                                   avg_bws=para['bw'],
+                                   avg_delays=para['delay'],
+                                   b_bws=para['beta_bw'],
+                                   b_speeds=para['beta_speed'],
+                                   num_type=exp_cfg.data_parameters['num_of_types'],
+                                   seeds=para['seed'])
+        for net_set in networks.values():
+            for net_data in net_set:
+                train_networks.append(FullNetwork(net_data['delay'], net_data['comm_speed'], net_data['speed'],
+                                                      net_data['device_constraints']))
+                train_network_para[idx] = net_data['para']
+                idx += 1
+
+
+    train_programs = []
+    train_program_para = {}
+    idx = 0
+    for para in program_para_train:
+        programs = generate_programs(alphas=para['alpha'],
+                                    vs=para['v'],
+                                    connect_probs=para['conn_prob'],
+                                    avg_computes=para['compute'],
+                                    avg_bytes=para['bytes'],
+                                    b_comps=para['bete_compute'],
+                                    b_comms=para['beta_byte'],
+                                    num_types=exp_cfg.data_parameters['num_of_types'],
+                                     seeds=para['seed'])
+
+        for prog_set in programs.values():
+            for G in prog_set:
+                train_programs.append(Program(G))
+                train_program_para[idx] = G.graph
+                idx += 1
+
+
+    # generate test data
+    test_networks = []
+    test_network_para = {}
+    idx = 0
+    for para in network_para_test:
+        networks = generate_networks(n_devices=para['num_of_devices'],
+                                     type_probs=para['constraint_prob'],
+                                     avg_speeds=para['compute_speed'],
+                                     avg_bws=para['bw'],
+                                     avg_delays=para['delay'],
+                                     b_bws=para['beta_bw'],
+                                     b_speeds=para['beta_speed'],
+                                     num_type=exp_cfg.data_parameters['num_of_types'],
+                                     seeds=para['seed'])
+        for net_set in networks.values():
+            for net_data in net_set:
+                test_networks.append(FullNetwork(net_data['delay'], net_data['comm_speed'], net_data['speed'],
+                                                  net_data['device_constraints']))
+                test_network_para[idx] = net_data['para']
+                idx += 1
+
+    test_programs = []
+    test_program_para = {}
+    idx = 0
+    for para in program_para_test:
+        programs = generate_programs(alphas=para['alpha'],
+                                     vs=para['v'],
+                                     connect_probs=para['conn_prob'],
+                                     avg_computes=para['compute'],
+                                     avg_bytes=para['bytes'],
+                                     b_comps=para['bete_compute'],
+                                     b_comms=para['beta_byte'],
+                                     num_types=exp_cfg.data_parameters['num_of_types'],
+                                     seeds=para['seed'])
+
+        for prog_set in programs.values():
+            for G in prog_set:
+                test_programs.append(Program(G))
+                test_program_para[idx] = G.graph
+                idx += 1
 
     para_set = {'test_program': test_program_para,
                 'test_network': test_network_para,
@@ -170,6 +278,7 @@ def run_episodes(env,
         print(f'{i}th case: {case_data }')
 
         new_episode = True
+
 
         start_time = time.time()
         for t in range(num_of_placement_samples):
@@ -233,177 +342,6 @@ def run_episodes(env,
         pickle.dump(records, open(logname, 'wb'))
     return records
 
-# class Experiment:
-#     def __init__(self, exp_config):
-#
-#         self.exp_cfg = exp_config
-#
-#         self.logdir = os.path.join(
-#             self.exp_cfg.logdir, '{}_{}'.format(
-#                 datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
-#                 self.exp_cfg.logdir_suffix))
-#         if not os.path.exists(self.logdir):
-#             os.makedirs(self.logdir)
-#
-#         print("LOGDIR: ", self.logdir)
-#         pickle.dump(self.exp_cfg,
-#                     open(os.path.join(self.logdir, "args.pkl"), "wb"))
-#
-#
-#         self.train_networks = [StarNetwork(*generate_network(n, seed=0)) for n in self.exp_cfg.num_devices_training]
-#         train_network_id = {i: {'n_devices': self.train_networks[i].n_devices, 'seed': 0} for i in range(len(self.train_networks))}
-#
-#         self.train_programs = []
-#         train_program_id = {}
-#         idx = 0
-#         for m in self.exp_cfg.num_operators_training:
-#             for n in self.exp_cfg.num_devices_training:
-#                 for seed in self.exp_cfg.application_graph_seeds_training:
-#                     self.train_programs.append(Program(*generate_program(m, n, seed=seed)))
-#                     train_program_id[idx] = {'n_operators': m, 'n_devices': n, 'seed': seed}
-#                     idx += 1
-#
-#
-#         self.train_env = PlacementEnv(self.train_networks, self.train_programs)
-#
-#         episode_per_setting = self.exp_cfg.num_episodes_per_setting
-#         if not episode_per_setting:
-#             episode_per_setting = self.exp_cfg.num_training_episodes // len(self.train_networks) // len(self.train_programs) // len(self.exp_cfg.init_mapping_seeds_training)
-#
-#         set = list(itertools.product(list(range(len(self.train_env.networks))), list(range(len(self.train_env.programs))), self.exp_cfg.init_mapping_seeds_training)) * episode_per_setting
-#         self.num_train_episodes = len(set)
-#         np.random.shuffle(set)
-#
-#         self.train_program_ids = [l[1] for l in set]
-#         self.train_network_ids = [l[0] for l in set]
-#         self.train_init_seeds = [l[2] for l in set]
-#
-#         self.test_networks = [StarNetwork(*generate_network(n, seed=0)) for n in self.exp_cfg.num_devices_testing]
-#         test_network_id = {i: {'n_devices': self.test_networks[i].n_devices, 'seed': 0} for i in range(len(self.test_networks))}
-#
-#         self.test_programs = []
-#         test_program_id = {}
-#         idx = 0
-#         for m in self.exp_cfg.num_operators_testing:
-#             for n in self.exp_cfg.num_devices_testing:
-#                 for seed in self.exp_cfg.application_graph_seeds_testing:
-#                     self.test_programs.append(Program(*generate_program(m, n, seed=seed)))
-#                     test_program_id[idx] = {'n_operators': m, 'n_devices': n, 'seed': seed}
-#                     idx += 1
-#         self.test_env = PlacementEnv(self.test_networks, self.test_programs)
-#
-#         set = list(itertools.product(list(range(len(self.test_env.networks))), list(range(len(self.test_env.programs))), self.exp_cfg.init_mapping_seeds_testing))
-#
-#         self.test_program_ids = [l[1] for l in set]
-#         self.test_network_ids = [l[0] for l in set]
-#         self.test_init_seeds = [l[2] for l in set]
-#
-#         self.agent = PlacementAgent(self.train_env.get_node_feature_dim(), self.train_env.get_edge_feature_dim(), self.exp_cfg.output_dim,
-#                                     hidden_dim=self.exp_cfg.hidden_dim, lr=self.exp_cfg.lr, gamma=self.exp_cfg.gamma)
-#
-#         pickle.dump({'test_program': test_program_id, 'test_network': test_network_id, 'train_program': train_program_id, 'train_network': train_network_id},
-#                     open(os.path.join(self.logdir, "data_id.pkl"), "wb"))
-#
-#     def train(self):
-#         full_graph = not self.exp_cfg.use_op_selection
-#         if self.exp_cfg.eval:
-#             record = []
-#             eval_records = []
-#             for i in range(self.num_train_episodes//20):
-#                 train_record = run_episodes(self.train_env,
-#                                   self.agent,
-#                                   self.train_program_ids[i*20: i*20 + 20],
-#                                   self.train_network_ids[i*20: i*20 + 20],
-#                                   self.train_init_seeds[i*20: i*20 + 20],
-#                                   use_full_graph=full_graph,
-#                                   num_of_placement_samples = self.exp_cfg.num_iterations_per_episode,
-#                                   update_policy=True,
-#                                   save_data=False,
-#                                   noise=self.exp_cfg.noise)
-#                 test_record = run_episodes(self.test_env,
-#                                             self.agent,
-#                                             self.test_program_ids * self.exp_cfg.testing_episodes,
-#                                             self.test_network_ids * self.exp_cfg.testing_episodes,
-#                                             self.test_init_seeds * self.exp_cfg.testing_episodes,
-#                                             use_full_graph=full_graph,
-#                                             num_of_placement_samples=self.exp_cfg.num_iterations_per_episode,
-#                                             update_policy=False,
-#                                             save_data=False,
-#                                             noise=self.exp_cfg.noise)
-#                 record.append(train_record)
-#                 eval_records.append(test_record)
-#
-#             pickle.dump(record, open(os.path.join(self.logdir, "train.pk"), "wb"))
-#             pickle.dump(eval_records, open(os.path.join(self.logdir, "eval.pk"), "wb"))
-#
-#         else:
-#             record = run_episodes(self.train_env,
-#                                   self.agent,
-#                                   self.train_program_ids,
-#                                   self.train_network_ids,
-#                                   self.train_init_seeds,
-#                                   use_full_graph=full_graph,
-#                                   num_of_placement_samples=self.exp_cfg.num_iterations_per_episode,
-#                                   update_policy=True,
-#                                   save_data=True,
-#                                   save_dir=self.logdir,
-#                                   save_name='train',
-#                                   noise=self.exp_cfg.noise)
-#         torch.save(self.agent.policy.state_dict(), os.path.join(self.logdir, 'policy.pk'))
-#         torch.save(self.agent.embedding.state_dict(), os.path.join(self.logdir, 'embedding.pk'))
-#
-#         return record
-#
-#     def test(self):
-#         for seed, program_id, network_id in zip(self.test_init_seeds, self.test_program_ids, self.test_network_ids):
-#             self.agent.policy.load_state_dict(torch.load(os.path.join(self.logdir, 'policy.pk')))
-#             self.agent.embedding.load_state_dict(torch.load(os.path.join(self.logdir, 'embedding.pk')))
-#
-#             if self.exp_cfg.tuning_spisodes:
-#                 run_episodes(self.test_env, self.agent,
-#                              [program_id] * self.exp_cfg.tuning_spisodes,
-#                              [network_id] * self.exp_cfg.tuning_spisodes,
-#                              [seed] * self.exp_cfg.tuning_spisodes,
-#                              use_full_graph=not self.exp_cfg.use_op_selection,
-#                              use_bip_connection=False,
-#                              explore=True,
-#                              num_of_placement_samples=self.exp_cfg.num_iterations_per_episode,
-#                              update_policy=True,
-#                              save_data=True,
-#                              save_dir=self.logdir,
-#                              save_name=f'tune_program_{program_id}_network_{network_id}_seed_{seed}',
-#                              noise=self.exp_cfg.noise)
-#
-#             run_episodes(self.test_env, self.agent,
-#                          [program_id] * self.exp_cfg.testing_episodes,
-#                          [network_id] * self.exp_cfg.testing_episodes,
-#                              [seed] * self.exp_cfg.testing_episodes,
-#                              use_full_graph=not self.exp_cfg.use_op_selection,
-#                              use_bip_connection=False,
-#                              explore=True,
-#                              num_of_placement_samples=self.exp_cfg.num_iterations_per_episode,
-#                              update_policy=False,
-#                              save_data=True,
-#                              save_dir=self.logdir,
-#                              save_name=f'test_explore_program_{program_id}_network_{network_id}_seed_{seed}',
-#                              noise=self.exp_cfg.noise)
-#
-#             run_episodes(self.test_env, self.agent,
-#                          [program_id] * self.exp_cfg.testing_episodes,
-#                          [network_id] * self.exp_cfg.testing_episodes,
-#                              [seed] * self.exp_cfg.testing_episodes,
-#                              use_full_graph=not self.exp_cfg.use_op_selection,
-#                              use_bip_connection=False,
-#                              explore=False,
-#                              num_of_placement_samples=self.exp_cfg.num_iterations_per_episode,
-#                              update_policy=False,
-#                              save_data=True,
-#                              save_dir=self.logdir,
-#                              save_name=f'test_noexp_program_{program_id}_network_{network_id}_seed_{seed}',
-#                              noise=self.exp_cfg.noise)
-
-
-
 class Experiment_on_data:
     def __init__(self, exp_config):
 
@@ -420,15 +358,17 @@ class Experiment_on_data:
         pickle.dump(self.exp_cfg,
                     open(os.path.join(self.logdir, "args.pkl"), "wb"))
 
-        network_path = self.exp_cfg.device_net_path
-        op_path = self.exp_cfg.op_net_path
+        if exp_config.load_data:
+            network_path = self.exp_cfg.device_net_path
+            op_path = self.exp_cfg.op_net_path
+            train_networks, train_programs, test_networks, test_programs, para_set = load_data_from_dir(network_path, op_path, exp_config)
+        else:
+            train_networks, train_programs, test_networks, test_programs, para_set = generate_data(exp_config)
 
-        train_networks, train_programs, test_networks, test_programs, para_set = load_data_from_dir(network_path, op_path, exp_config)
         self.train_networks = train_networks
         self.train_programs = train_programs
         self.test_networks = test_networks
         self.test_programs = test_programs
-
         pickle.dump(para_set, open(os.path.join(self.logdir, "data_para.pkl"), "wb"))
 
         self.train_env = PlacementEnv(self.train_networks, self.train_programs, exp_config.memory_capacity)
@@ -441,36 +381,56 @@ class Experiment_on_data:
         if not episode_per_setting:
             episode_per_setting = self.exp_cfg.num_training_episodes // (
                         len(self.train_networks) * len(self.train_programs) * len(
-                    self.exp_cfg.init_mapping_seeds_training))
+                    self.exp_cfg.data_parameters['training']['init_mapping']))
             if not episode_per_setting:
                 random_train = True
             else:
                 self.num_train_episodes = episode_per_setting * (len(self.train_networks) * len(self.train_programs) * len(
-                    self.exp_cfg.init_mapping_seeds_training))
+                    self.exp_cfg.data_parameters['training']['init_mapping']))
         else:
             self.num_train_episodes = episode_per_setting * (len(self.train_networks) * len(self.train_programs) * len(
-                    self.exp_cfg.init_mapping_seeds_training))
+                    self.exp_cfg.data_parameters['training']['init_mapping']))
 
 
         if random_train:
             self.train_network_ids = np.random.choice(len(self.train_networks), self.num_train_episodes).tolist()
             self.train_program_ids = np.random.choice(len(self.train_programs), self.num_train_episodes).tolist()
-            self.train_init_seeds = np.random.choice(exp_config.init_mapping_seeds_training, self.num_train_episodes).tolist()
+            self.train_init_seeds = np.random.choice(exp_config.data_parameters['training']['init_mapping'], self.num_train_episodes).tolist()
         else:
-            set = list(itertools.product(list(range(len(self.train_networks))), list(range(len(self.train_programs))), self.exp_cfg.init_mapping_seeds_training)) * episode_per_setting
+            set = list(itertools.product(list(range(len(self.train_networks))), list(range(len(self.train_programs))), self.exp_cfg.data_parameters['training']['init_mapping'])) * episode_per_setting
             np.random.shuffle(set)
             self.train_network_ids = [l[0] for l in set]
             self.train_program_ids = [l[1] for l in set]
             self.train_init_seeds = [l[2] for l in set]
 
 
-        set = list(itertools.product(list(range(len(self.test_networks))), list(range(len(self.test_programs))), self.exp_cfg.init_mapping_seeds_testing))
+        set = list(itertools.product(list(range(len(self.test_networks))), list(range(len(self.test_programs))), self.exp_cfg.data_parameters['testing']['init_mapping']))
         self.test_program_ids = [l[1] for l in set]
         self.test_network_ids = [l[0] for l in set]
         self.test_init_seeds = [l[2] for l in set]
 
         self.agent = PlacementAgent(PlacementEnv.get_node_feature_dim(), PlacementEnv.get_edge_feature_dim(), self.exp_cfg.output_dim,
                                     hidden_dim=self.exp_cfg.hidden_dim, lr=self.exp_cfg.lr, gamma=self.exp_cfg.gamma)
+        run_data = {
+            'num_of_train_networks': len(self.train_networks),
+            'num_of_train_programs': len(self.train_programs),
+            'num_of_train_episodes': self.num_train_episodes,
+            'train_sequence': {
+                'networks': self.train_network_ids,
+                'programs': self.train_program_ids,
+                'initial_mapping': self.train_init_seeds
+            },
+            'num_of_test_networks': len(self.test_networks),
+            'num_of_test_programs': len(self.test_programs),
+            'num_of_test_episodes': self.exp_cfg.num_testing_episodes,
+            'test_sequence': {
+                'networks': self.test_network_ids,
+                'programs': self.test_program_ids,
+                'initial_mapping': self.test_init_seeds
+            },
+            'data_para': self.exp_cfg.data_parameters
+        }
+        json.dump(run_data, open(os.path.join(self.logdir, "run_data.txt"), "w"), indent=4)
 
 
     def train(self):
@@ -487,7 +447,7 @@ class Experiment_on_data:
                                   self.train_network_ids[i*20: i*20 + 20],
                                   self.train_init_seeds[i*20: i*20 + 20],
                                   use_full_graph=full_graph,
-                                  num_of_placement_samples = self.exp_cfg.num_iterations_per_episode,
+                                  num_of_placement_samples = self.exp_cfg.num_of_samples_per_episode,
                                   update_policy=True,
                                   save_data=False,
                                   noise=self.exp_cfg.noise)
@@ -498,7 +458,7 @@ class Experiment_on_data:
                                             self.test_network_ids * self.exp_cfg.num_testing_episodes,
                                             self.test_init_seeds * self.exp_cfg.num_testing_episodes,
                                             use_full_graph=full_graph,
-                                            num_of_placement_samples=self.exp_cfg.num_iterations_per_episode,
+                                            num_of_placement_samples=self.exp_cfg.num_of_samples_per_episode,
                                             update_policy=False,
                                             save_data=False,
                                             noise=self.exp_cfg.noise)
@@ -515,7 +475,7 @@ class Experiment_on_data:
                                   self.train_network_ids,
                                   self.train_init_seeds,
                                   use_full_graph=full_graph,
-                                  num_of_placement_samples=self.exp_cfg.num_iterations_per_episode,
+                                  num_of_placement_samples=self.exp_cfg.num_of_samples_per_episode,
                                   update_policy=True,
                                   save_data=True,
                                   save_dir=self.logdir,
@@ -541,7 +501,7 @@ class Experiment_on_data:
                              use_full_graph=not self.exp_cfg.use_op_selection,
                              use_bip_connection=False,
                              explore=True,
-                             num_of_placement_samples=self.exp_cfg.num_iterations_per_episode,
+                             num_of_placement_samples=self.exp_cfg.num_of_samples_per_episode,
                              update_policy=True,
                              save_data=True,
                              save_dir=self.logdir,
@@ -556,7 +516,7 @@ class Experiment_on_data:
                              use_full_graph=not self.exp_cfg.use_op_selection,
                              use_bip_connection=False,
                              explore=True,
-                             num_of_placement_samples=self.exp_cfg.num_iterations_per_episode,
+                             num_of_placement_samples=self.exp_cfg.num_of_samples_per_episode,
                              update_policy=False,
                              save_data=True,
                              save_dir=self.logdir,
@@ -570,7 +530,7 @@ class Experiment_on_data:
             #                  use_full_graph=not self.exp_cfg.use_op_selection,
             #                  use_bip_connection=False,
             #                  explore=False,
-            #                  num_of_placement_samples=self.exp_cfg.num_iterations_per_episode,
+            #                  num_of_placement_samples=self.exp_cfg.num_of_samples_per_episode,
             #                  update_policy=False,
             #                  save_data=True,
             #                  save_dir=self.logdir,
