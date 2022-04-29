@@ -3,7 +3,7 @@
 "training": {
 	"init_mapping": [-1], 
 	"networks": [{
-		"num_of_devices": [20,30],
+		"num_of_devices": [20],
 		"seed": [0, 1],
 		"constraint_prob": [0.2], 
 		"compute_speed": [5],
@@ -24,10 +24,10 @@
 		}]
 	},
 "testing": {
-	"init_mapping": 0, 
+	"init_mapping": [20],
 	"networks": [{
-		"num_of_devices": [20,30],
-		"seed": [0],
+		"num_of_devices": [20],
+		"seed": [20, 21],
 		"constraint_prob": [0.2], 
 		"compute_speed": [5],
 		"bw": [100], 
@@ -36,9 +36,9 @@
 		"beta_speed": [0.2]
 		}],
 	"programs": [{
-		"v": [10, 20, 40],
-		"seed": [0, 1, 2],
-		"conn_prob": 0.2,
+		"v": [20],
+		"seed": [20],
+		"conn_prob": [0.2],
 		"alpha": [0.1, 0.5],
 		"compute": [100],
 		"bytes": [100], 

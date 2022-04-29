@@ -331,6 +331,7 @@ def run_episodes(env,
             if end_episode:
                 agent.finish_episode(update_network=update_policy, use_baseline=use_baseline)
                 case_data['episodes'].append(ep_data)
+                new_episode = True
         case_data ['run_time'] = time.time() - start_time
         records.append(case_data)
 
