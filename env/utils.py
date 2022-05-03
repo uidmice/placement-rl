@@ -18,6 +18,35 @@ def from_matrix_to_mapping(m):
     return [get_mapped_node(m, i) for i in range(m.shape[0])]
 
 
+def visualize_dag(G, widths, height):
+    pos = {}
+    max_width = max(widths)
+    max_height = height
+
+    height_incr = 2 / (max_height + 1)
+    width_incr = 2 / max_width
+
+    total_operator = sum(widths)
+
+    pos[0] = np.array([-1, -1])
+    pos[total_operator + 1] = np.array([1, -1])
+
+    cnt = 1
+    cur_height = -1 + height_incr
+    cur_width = -1
+    for i in range(height):
+        for j in range(widths[i]):
+            pos[cnt] = np.array([cur_height, cur_width])
+            cur_width += width_incr
+            cnt += 1
+        cur_width = -1
+        cur_height += height_incr
+
+    nx.draw(G, pos)
+    plt.show()
+
+    return
+
 def graph_dag_structure(v,
                         alpha,
                         seed,
@@ -165,53 +194,99 @@ def generate_network(n_devices,
 
     return network
 
-#
-# def generate_network(n_devices, seed):
-#     np.random.seed(seed)
-#
-#     fast_link = set(np.random.choice(n_devices, n_devices // 2, False))
-#     slow_link = set(range(n_devices)) - fast_link
-#
-#     delay = np.random.uniform(5, 10, n_devices)
-#     delay[list(slow_link)] = delay[list(slow_link)] + np.random.uniform(10, 20, len(slow_link))
-#
-#     bw = np.random.uniform(100, 200, n_devices)
-#     bw[list(slow_link)] = np.random.uniform(20, 50, len(slow_link))
-#
-#     speed = np.random.uniform(1, 3, n_devices)
-#     return delay, bw, speed
-#
-#
-# def generate_program(n_operators, n_devices, seed, B=1000, l=100):
-#     np.random.seed(seed)
-#     G = nx.gnp_random_graph(n_operators - 2, 0.8, seed=seed, directed=True)
-#     DAG = nx.DiGraph([(u, v) for (u, v) in G.edges() if u < v])
-#     DAG = nx.relabel.convert_node_labels_to_integers(DAG, first_label=1)
-#     heads = [node for node in DAG.nodes() if DAG.in_degree(node) == 0]
-#     tails = [node for node in DAG.nodes() if DAG.out_degree(node) == 0]
-#
-#     for n in heads:
-#         DAG.add_edge(0, n)
-#     for n in tails:
-#         DAG.add_edge(n, n_operators - 1)
-#
-#     constraints = {}
-#     n_types = n_devices // 5
-#     groups = [set() for i in range(n_types)]
-#     for i in range(n_devices):
-#         groups[np.random.choice(n_types)].add(i)
-#     k = len(groups)
-#     for e in DAG.edges:
-#         DAG.edges[e]['bytes'] = np.random.uniform(B/2, B)
-#     for n in DAG.nodes:
-#         DAG.nodes[n]['compute'] = np.random.exponential(l)
-#         group_ids = np.random.choice(k, k // 2 + (np.random.sample() > 0.5) * 1 - (np.random.sample() > 0.5) * 1)
-#         constraints[n] = list(set().union(*[groups[j] for j in group_ids]))
-#         if not len(constraints[n]):
-#             constraints[n] = np.random.choice(n_devices, n_devices//2, replace=False).tolist()
-#     constraints[0] = [np.random.choice(constraints[0])]
-#     constraints[n_operators - 1] = [np.random.choice(constraints[n_operators - 1])]
-#     return DAG, constraints
+def program_data_fn(v, alpha, p, num_types, avg_compute, avg_byte, b_comp, b_comm):
+    return  f"v_{v}_alpha_{alpha}_connp_{p}_ntype_{num_types}_compute_{avg_compute}_bytes_{avg_byte}_bcomp_{b_comp}_bcomm_{b_comm}.pkl"
+
+def network_data_fn(n, num_type, avg_speed, avg_bw, avg_delay, p, b_bw, b_speed):
+    return  f"ndevice_{n}_ntype_{num_type}_speed_{avg_speed}_bw_{avg_bw}_delay_{avg_delay}_tprob_{p}_bbw_{b_bw}_bspeed_{b_speed}.pkl"
+
+
+def generate_networks(n_devices,
+                      type_probs,
+                      avg_speeds,
+                      avg_bws,
+                      avg_delays,
+                      b_bws,
+                      b_speeds,
+                      number=25,
+                      num_type=5,
+                      seeds=None,
+                      save=False):
+    if save:
+        network_path = "./data/device_networks"
+        if not os.path.exists(network_path):
+            os.mkdir(network_path)
+    else:
+        res = {}
+    for n in n_devices:
+        for p in type_probs:
+            for avg_speed in avg_speeds:
+                for avg_bw in avg_bws:
+                    for avg_delay in avg_delays:
+                        for b_bw in b_bws:
+                            for b_speed in b_speeds:
+                                networks = []
+                                if not seeds:
+                                    seeds  = range(number)
+                                for seed in seeds:
+                                    network = generate_network(n, seed, num_type, p, avg_speed, avg_bw, avg_delay, b_bw,
+                                                               b_speed)
+                                    networks.append(network)
+
+                                network_fn = network_data_fn(n, num_type, avg_speed, avg_bw, avg_delay, p, b_bw, b_speed)
+                                if save:
+                                    network_save_path = os.path.join(network_path, network_fn)
+                                    to_pickle(network_save_path, networks)
+                                else:
+                                    res[network_fn] = networks
+    if save:
+        return
+    return res
+
+
+def generate_programs(alphas,
+                      vs,
+                      connect_probs,
+                      avg_computes,
+                      avg_bytes,
+                      b_comps,
+                      b_comms,
+                      number=25,
+                      num_types=5,
+                      seeds=None,
+                      save=False):
+    if save:
+        op_path = "./data/op_networks/"
+        if not os.path.exists(op_path):
+            os.mkdir(op_path)
+    else:
+        res = {}
+
+    for alpha in alphas:
+        for v in vs:
+            for p in connect_probs:
+                for avg_compute in avg_computes:
+                    for avg_byte in avg_bytes:
+                        for b_comp in b_comps:
+                            for b_comm in b_comms:
+                                programs = []
+                                if not seeds:
+                                    seeds = range(number)
+                                for seed in seeds:
+                                    G = generate_graph(alpha, v, p, seed, num_types, avg_compute, avg_byte, b_comp,
+                                                       b_comm)
+                                    programs.append(G)
+
+                                op_fn = program_data_fn(v, alpha, p, num_types, avg_compute, avg_byte, b_comp, b_comm)
+                                if save:
+                                    op_fn = os.path.join(op_path, op_fn)
+                                    to_pickle(op_fn, programs)
+                                else:
+                                    res[op_fn] = programs
+    if save:
+        return
+    return res
+
 
 
 def to_pickle(save_path, res):
@@ -223,26 +298,6 @@ def load_pickle(path):
         res = pickle.load(handle)
     return res
 
-def load_weights(path):
-    with open(path, 'rb') as handle:
-        res = pickle.load(handle)
-    comms, comps = res["comms"], res["comps"]
-    return comms, comps
-
-def load_dag_params(path):
-    with open(path, 'rb') as handle:
-        res = pickle.load(handle)
-    widths, height = res["widths"], res['height']
-    return widths, height
-
-def save_dag(save_path, G):
-    # pickle.dump(G, open(save_path, 'wb'))
-    nx.write_gpickle(G, save_path)
-    return
-
-def load_dag(path):
-    G = nx.read_gpickle(path)
-    return G
 
 def network_fn_filter(network_path,
                    n_devices=[20],
@@ -289,6 +344,8 @@ def network_fn_filter(network_path,
 
     return res
 
+def close_to_any(a, floats, **kwargs):
+  return np.any(np.isclose(a, floats, **kwargs))
 
 def program_fn_filter(op_path,
                    vs=[20],
@@ -316,9 +373,9 @@ def program_fn_filter(op_path,
         bcomm = float(token[15][:-4])
         if v not in vs:
             continue
-        elif alpha not in alphas:
+        elif not close_to_any(alpha, alphas):
             continue
-        elif connp not in connect_probs:
+        elif not close_to_any(connp, connect_probs):
             continue
         elif ntype not in num_types:
             continue
@@ -326,9 +383,9 @@ def program_fn_filter(op_path,
             continue
         elif byte not in avg_bytes:
             continue
-        elif bcomp not in b_comps:
+        elif not close_to_any(bcomp, b_comps):
             continue
-        elif bcomm not in b_comms:
+        elif not close_to_any(bcomm, b_comms):
             continue
         else:
             res.append(fn)
