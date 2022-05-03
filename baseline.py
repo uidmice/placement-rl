@@ -11,11 +11,9 @@ def get_placement_constraints(program, network):
         constraints.append([k[0] for k in filter(lambda elem: c in elem[1], network.device_constraints.items())])
     return constraints
 
-def random_placement(program, network, number_mappings=100, noise=0):
+def random_placement(program, network, constraints, number_mappings=100, noise=0):
     latencies = np.zeros(number_mappings)
     min_lat = np.Inf
-
-    constraints = get_placement_constraints(program, network)
 
     for i in range(number_mappings):
         mapping = [np.random.choice(constraints[i]) for i in range(program.n_operators)]
