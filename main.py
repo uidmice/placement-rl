@@ -74,9 +74,9 @@ def get_args():
                         help='number of training episodes for each program-network-initial mapping')
 
     parser.add_argument('--num_of_samples_per_episode',
-                        default=50,
+                        default=100,
                         type=int,
-                        help='number of iterations per episode (default 50)')
+                        help='number of iterations per episode (default 100)')
 
     parser.add_argument('--num_training_episodes',
                         default=200,
@@ -84,7 +84,7 @@ def get_args():
                         help='total number of training episodes if episode_per_program is not specified (default: 200)')
 
     parser.add_argument('--memory_capacity',
-                        default=10,
+                        default=4,
                         type=int,
                         help='capacity of the memory buffer for storing placement  (default: 10)')
 

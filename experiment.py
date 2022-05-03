@@ -232,6 +232,9 @@ def run_episodes(env,
                  seeds,
                  use_full_graph=True,
                  use_bip_connection=False,
+                 use_memory_buffer=True,
+                 memory_rollback_prob=0.6,
+                 burn_in_steps=5,
                  multi_selection=False,
                  explore=True,
                  num_of_placement_samples=50,
@@ -240,7 +243,8 @@ def run_episodes(env,
                  save_data=False,
                  save_dir='data',
                  save_name='',
-                 noise=0):
+                 noise=0,
+                 eval=False):
 
     assert isinstance(seeds, list)
     assert isinstance(program_ids, list)
@@ -279,6 +283,7 @@ def run_episodes(env,
 
         new_episode = True
 
+        env.clear_buffer(program_id, network_id)
 
         start_time = time.time()
         for t in range(num_of_placement_samples):
@@ -288,8 +293,17 @@ def run_episodes(env,
                 ep_data['rewards'] = []
                 ep_data['ep_return'] = 0
 
-                cur_mapping = env.random_mapping(program_id, network_id, seed)
+                cur_mapping = None
+                if use_memory_buffer:
+                    if np.random.random() < memory_rollback_prob:
+                        cur_mapping = env.sample_from_buffer(program_id, network_id)
+                    count = 0
+
+                if cur_mapping is None:
+                    cur_mapping = env.random_mapping(program_id, network_id, seed)
                 last_latency, path, G_stats = env.simulate(program_id, network_id, cur_mapping, noise)
+                env.push_to_buffer(program_id, network_id, cur_mapping.copy(), last_latency, True)
+
 
                 new_episode = False
 
@@ -327,7 +341,17 @@ def run_episodes(env,
             agent.saved_rewards.append(reward)
             ep_data['ep_return'] = reward + ep_data['ep_return'] * agent.gamma
 
-            end_episode = (t == num_of_placement_samples - 1)
+            end_episode = (len(case_data['sampled_placement']) == num_of_placement_samples)
+            if use_memory_buffer:
+                idx = env.push_to_last_buffer(program_id, network_id, cur_mapping.copy(), latency, 0)
+                if idx > -1:
+                    count = 0
+                else:
+                    count += 1
+
+                if count >= burn_in_steps:
+                    end_episode = True
+
             if end_episode:
                 agent.finish_episode(update_network=update_policy, use_baseline=use_baseline)
                 case_data['episodes'].append(ep_data)
