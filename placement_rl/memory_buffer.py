@@ -48,21 +48,45 @@ class Buffer:
 
         self.buffer = []
         self.rank = []
+        self.last_index = -1
 
-    def push(self, item, rank):
+    def push(self, item, rank, force=False):
         if len(self.buffer) < self.capacity:
             self.buffer.append(item)
             self.rank.append(rank)
+            self.last_index = len(self.rank) - 1
+            return self.last_index
         else:
-            idx = self.rank.index(max(self.rank))
-            self.buffer[idx] = item
-            self.rank[idx] = rank
+            lowest = max(self.rank)
+            if rank < lowest or force:
+                idx = self.rank.index(lowest)
+                self.buffer[idx] = item
+                self.rank[idx] = rank
+                self.last_index = idx
+                return idx
+            else:
+                return -1
 
     def sample(self):
         if len(self.buffer):
-            return random.sample(self.buffer, 1)[0]
+            self.last_index = np.random.randint(len(self.buffer))
+            return self.buffer[self.last_index]
         else:
             return None
+
+    def clear(self):
+        del self.buffer[:]
+        del self.rank[:]
+        self.last_index = -1
+
+    def push_to_last(self, item, rank, p):
+        if self.last_index < 0:
+            return self.push(item, rank)
+        if rank < self.rank[self.last_index] or np.random.random() < p:
+            self.buffer[self.last_index] = item
+            self.rank[self.last_index] = rank
+            return self.last_index
+        return -1
 
 
 class ReplayBuffer:

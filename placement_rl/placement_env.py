@@ -82,18 +82,28 @@ class PlacementEnv:
                 self.placement_buffer[program_id][network_id] = Buffer(capacity=self.memory_size)
         return self.placement_buffer[program_id][network_id]
 
-    def push_to_buffer(self, program_id, network_id, mapping, latency):
+    def push_to_buffer(self, program_id, network_id, mapping, latency, force):
         buffer = self.get_memory_buffer(program_id, network_id)
-        buffer.push(mapping, latency)
-        return buffer
+        return buffer.push(mapping, latency, force)
 
     def sample_from_buffer(self, program_id, network_id):
         buffer = self.get_memory_buffer(program_id, network_id)
         return buffer.sample()
 
+    def clear_buffer(self, program_id, network_id):
+        buffer = self.get_memory_buffer(program_id, network_id)
+        buffer.clear()
+
+    def push_to_last_buffer(self, program_id, network_id, mapping, latency, p):
+        buffer = self.get_memory_buffer(program_id, network_id)
+        return buffer.push_to_last(mapping, latency, p)
+
     def random_mapping(self, program_id, network_id, seed=-1):
         constraints = self.get_placement_constraints(program_id, network_id)
-        if seed > -1:
+        if isinstance(seed, list):
+            s = np.random.choice(seed)
+            np.random.seed(s)
+        elif isinstance(seed, int) and seed > -1:
             np.random.seed(seed)
         mapping = [np.random.choice(constraints[i]) for i in range(self.programs[program_id].n_operators)]
         return mapping

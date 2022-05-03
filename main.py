@@ -1,4 +1,4 @@
-from experiment import Experiment_on_data
+from experiment import Experiment_on_data, Experiment_placeto
 
 import argparse, os, json
 
@@ -90,8 +90,10 @@ def get_args():
 
 
     parser.add_argument('--use_op_selection',
-                        action='store_true',
+                        default=False,
                         help='use two-step heuristic method (operator selection network + est device selection)')
+                        # action='store_true',
+
 
     parser.add_argument('--eval',
                         action='store_true',
@@ -108,6 +110,13 @@ def get_args():
         default=0,
         type=int,
         help='number of episodes for tuning (default: 0)')
+
+### baselines ###
+    parser.add_argument(
+        '--use_placeto',
+        action='store_true',
+        help='Use placeto')
+
     return parser.parse_args()
 
 if __name__ == '__main__':
@@ -115,7 +124,9 @@ if __name__ == '__main__':
     exp_cfg = get_args()
     print(exp_cfg)
 
-    # experiment = Experiment(exp_cfg)
-    experiment = Experiment_on_data(exp_cfg)
+    if exp_cfg.use_placeto:
+        experiment = Experiment_placeto(exp_cfg)
+    else:
+        experiment = Experiment_on_data(exp_cfg)
     experiment.train()
     experiment.test()

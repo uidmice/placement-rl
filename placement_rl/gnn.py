@@ -62,7 +62,7 @@ class MPLayer(nn.Module):
         return {'h': F.relu(h)}
 
     def forward(self, g,  reverse):
-        g.ndata['z'] = torch.randn(g.num_nodes(), self.node_dim + self.edge_dim).to(device)
+        g.ndata['z'] = torch.rand(g.num_nodes(), self.node_dim + self.edge_dim).to(device)
         dgl.prop_nodes_topo(g, self.msg_func,
                             self.reduce_func,
                             reverse,
