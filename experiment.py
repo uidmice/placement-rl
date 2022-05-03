@@ -245,8 +245,7 @@ def run_episodes(env,
                  save_data=False,
                  save_dir='data',
                  save_name='',
-                 noise=0,
-                 eval=False):
+                 noise=0):
 
     assert isinstance(seeds, list)
     assert isinstance(program_ids, list)
@@ -559,55 +558,44 @@ class Experiment_on_data:
 
     def train(self):
         full_graph = not self.exp_cfg.use_op_selection
-        if self.exp_cfg.eval:
-            record = []
-            eval_records = []
-            for i in range(self.num_train_episodes//20):
-                print('===========================================================================')
-                print(f"{i}th: RUNNING training batch. Total {self.num_train_episodes//20} batches. ")
-                train_record = run_episodes(self.train_env,
-                                  self.agent,
-                                  self.train_program_ids[i*20: i*20 + 20],
-                                  self.train_network_ids[i*20: i*20 + 20],
-                                  self.train_init_seeds[i*20: i*20 + 20],
-                                  use_full_graph=full_graph,
-                                  samples_to_ops_ratio = self.exp_cfg.samples_to_ops_ratio,
-                                  update_policy=True,
-                                  save_data=False,
-                                  noise=self.exp_cfg.noise)
-                torch.save(self.agent.policy.state_dict(), os.path.join(self.logdir, f'policy_{i*20}.pk'))
-                torch.save(self.agent.embedding.state_dict(), os.path.join(self.logdir, f'embedding_{i*20}.pk'))
+        record = []
+        eval_records = []
+        for i in range(self.num_train_episodes // 20):
+            print('===========================================================================')
+            print(f"{i}th: RUNNING training batch. Total {self.num_train_episodes // 20} batches. ")
+            torch.save(self.agent.policy.state_dict(), os.path.join(self.logdir, f'policy_{i * 20 }.pk'))
+            torch.save(self.agent.embedding.state_dict(), os.path.join(self.logdir, f'embedding_{i * 20}.pk'))
 
+            train_record = run_episodes(self.train_env,
+                                        self.agent,
+                                        self.train_program_ids[i * 20: i * 20 + 20],
+                                        self.train_network_ids[i * 20: i * 20 + 20],
+                                        self.train_init_seeds[i * 20: i * 20 + 20],
+                                        use_full_graph=full_graph,
+                                        samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
+                                        update_policy=True,
+                                        save_data=False,
+                                        noise=self.exp_cfg.noise)
+            record.append(train_record)
+            if self.exp_cfg.eval:
                 print(f"{i}th: Evaluating. ")
                 test_record = run_episodes(self.test_env,
-                                            self.agent,
-                                            self.test_program_ids * self.exp_cfg.num_testing_episodes,
-                                            self.test_network_ids * self.exp_cfg.num_testing_episodes,
-                                            self.test_init_seeds * self.exp_cfg.num_testing_episodes,
-                                            use_full_graph=full_graph,
-                                            samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
-                                            update_policy=False,
-                                            save_data=False,
-                                            noise=self.exp_cfg.noise)
-                record.append(train_record)
+                                           self.agent,
+                                           self.test_program_ids * self.exp_cfg.num_testing_episodes,
+                                           self.test_network_ids * self.exp_cfg.num_testing_episodes,
+                                           self.test_init_seeds * self.exp_cfg.num_testing_episodes,
+                                           use_full_graph=full_graph,
+                                           samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
+                                           update_policy=False,
+                                           save_data=False,
+                                           noise=self.exp_cfg.noise)
                 eval_records.append(test_record)
 
-        else:
-            record = run_episodes(self.train_env,
-                                  self.agent,
-                                  self.train_program_ids,
-                                  self.train_network_ids,
-                                  self.train_init_seeds,
-                                  use_full_graph=full_graph,
-                                  samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
-                                  update_policy=True,
-                                  save_data=True,
-                                  save_dir=self.logdir,
-                                  save_name='train',
-                                  noise=self.exp_cfg.noise)
-            torch.save(self.agent.policy.state_dict(), os.path.join(self.logdir, 'policy.pk'))
-            torch.save(self.agent.embedding.state_dict(), os.path.join(self.logdir, 'embedding.pk'))
-
+        pickle.dump(record, open(os.path.join(self.logdir, "train.pk"), "wb"))
+        torch.save(self.agent.policy.state_dict(), os.path.join(self.logdir, f'policy.pk'))
+        torch.save(self.agent.embedding.state_dict(), os.path.join(self.logdir, f'embedding.pk'))
+        if self.exp_cfg.eval:
+            pickle.dump(eval_records, open(os.path.join(self.logdir, "eval.pk"), "wb"))
         return record
 
     def test(self):
@@ -792,7 +780,6 @@ class Experiment_placeto:
                                   self.train_program_ids,
                                   self.train_network_ids,
                                   self.train_init_seeds,
-                                  samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
                                   update_policy=True,
                                   save_data=True,
                                   save_dir=self.logdir,
@@ -839,113 +826,3 @@ class Experiment_placeto:
                              save_dir=self.logdir,
                              save_name=f'test_explore_program_{program_id}_network_{network_id}_seed_{seed}',
                              noise=self.exp_cfg.noise)
-
-            # run_episodes(self.test_env, self.agent,
-            #              [program_id] * self.exp_cfg.num_testing_episodes,
-            #              [network_id] * self.exp_cfg.num_testing_episodes,
-            #                  [seed] * self.exp_cfg.num_testing_episodes,
-            #                  use_full_graph=not self.exp_cfg.use_op_selection,
-            #                  use_bip_connection=False,
-            #                  explore=False,
-            #                  samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
-            #                  update_policy=False,
-            #                  save_data=True,
-            #                  save_dir=self.logdir,
-            #                  save_name=f'test_noexp_program_{program_id}_network_{network_id}_seed_{seed}',
-            #                  noise=self.exp_cfg.noise)
-
-
-
-
-# def train(env,
-#           agent,
-#           init_mapping,
-#           episodes,
-#           samples_to_ops_ratio=50,
-#           update_op_net=True,
-#           update_dev_net=True,
-#           greedy_dev_selection=True,
-#           use_baseline=True,
-#           noise=0,
-#           short_earlier_ep=False,
-#           early_stop = 5):
-#     op_rewards = []
-#
-#     map_records = [init_mapping]
-#     lat_records = []
-#     act_records = []
-#
-#     program = env.programs[0]
-#     network = env.networks[0]
-#
-#     mask_dev = torch.zeros(network.n_devices).to(device)
-#
-#     currrent_stop_iter = samples_to_ops_ratio
-#     if short_earlier_ep:
-#         currrent_stop_iter = early_stop
-#
-#
-#
-#     for i in range(episodes):
-#         cur_mapping = init_mapping.copy()
-#         last_latency, path, G_stats = env.simulate(0, 0, init_mapping, noise)
-#
-#         print(f'=== Episode {i} ===')
-#         latencies = [last_latency]
-#         actions = []
-#         ep_reward = 0
-#
-#         mask_op = torch.ones(program.n_operators).to(device)
-#         mask_op[0] = mask_op[-1] = 0
-#
-#         for t in range(currrent_stop_iter):
-#             graphs = []
-#             temp_mapping = cur_mapping.copy()
-#             g = env.get_cardinal_graph(0, 0, temp_mapping, path, G_stats).to(device)
-#             s = agent.op_selection(g, mask_op)
-#
-#             if greedy_dev_selection:
-#                 action = agent.dev_selection_est(program, network, cur_mapping, G_stats, s, program.placement_constraints[s])
-#             else:
-#                 parallel = program.op_parallel[s]
-#                 constraints = program.placement_constraints[s]
-#                 mask_dev[:] = 0
-#                 mask_dev[constraints] = 1
-#                 for d in range(n_devices):
-#                     temp_mapping[s] = d
-#                     t_g = env.get_cardinal_graph(temp_mapping).to(device)
-#                     graphs.append(t_g)
-#                 action = agent.dev_selection(graphs, s, parallel, mask=mask_dev)
-#
-#             cur_mapping[s] = action
-#             latency, path, G_stats = env.simulate(0, 0, cur_mapping, noise)
-#             # reward = -latency/10
-#             # reward = -np.sqrt(latency)/10
-#             reward = (last_latency - latency)/10
-#             last_latency = latency
-#
-#             latencies.append(latency)
-#             actions.append([s, action])
-#             agent.saved_rewards.append(reward)
-#             ep_reward = reward + ep_reward * agent.gamma
-#
-#         agent.finish_episode(update_op_net, update_dev_net, use_baseline)
-#         op_rewards.append(ep_reward)
-#         map_records.append(cur_mapping)
-#         lat_records.append(latencies)
-#         act_records.append(actions)
-#
-#
-#         if short_earlier_ep and len(lat_records) >= 2:
-#             last_lat = lat_records[-2]
-#             incr_flag = 0
-#             for i in range(len(last_lat)):
-#                 if last_lat[i] < latencies[i]:
-#                     incr_flag = 0
-#                     break
-#                 incr_flag = 1
-#             if incr_flag:
-#                 currrent_stop_iter += 1
-#
-#
-#     return op_rewards, lat_records, act_records, map_records
