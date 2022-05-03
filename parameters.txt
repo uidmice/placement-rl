@@ -1,7 +1,7 @@
 {
 "num_of_types": 5,
 "training": {
-	"init_mapping": [-1], 
+	"init_mapping": [1,2,3,4,5],
 	"networks": [{
 		"num_of_devices": [20],
 		"seed": [0, 1],
@@ -13,10 +13,10 @@
 		"beta_speed": [0.2]
 		}],
 	"programs": [{
-		"v": [10, 20, 40],
-		"seed": [0, 1, 2],
+		"v": [20],
+		"seed": [1, 2],
 		"conn_prob": [0.2],
-		"alpha": [0.1, 0.5],
+		"alpha": [0.5, 0.1],
 		"compute": [100],
 		"bytes": [100], 
 		"bete_compute": [0.2],
@@ -24,10 +24,10 @@
 		}]
 	},
 "testing": {
-	"init_mapping": [20],
+	"init_mapping": [20, 21, 22],
 	"networks": [{
 		"num_of_devices": [20],
-		"seed": [20, 21],
+		"seed": [20],
 		"constraint_prob": [0.2], 
 		"compute_speed": [5],
 		"bw": [100], 
@@ -39,7 +39,7 @@
 		"v": [20],
 		"seed": [20],
 		"conn_prob": [0.2],
-		"alpha": [0.1, 0.5],
+		"alpha": [0.1],
 		"compute": [100],
 		"bytes": [100], 
 		"bete_compute": [0.2],

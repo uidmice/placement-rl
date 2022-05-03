@@ -73,10 +73,10 @@ def get_args():
                         default=0,
                         help='number of training episodes for each program-network-initial mapping')
 
-    parser.add_argument('--num_of_samples_per_episode',
-                        default=100,
+    parser.add_argument('--samples_to_ops_ratio',
+                        default=2,
                         type=int,
-                        help='number of iterations per episode (default 100)')
+                        help='the ratio of the number of iterations per episode to the number of operators during training (default: 1.5)')
 
     parser.add_argument('--num_training_episodes',
                         default=200,
@@ -117,6 +117,20 @@ def get_args():
         action='store_true',
         help='Use placeto')
 
+    parser.add_argument(
+        '--use_random_op_est_device',
+        action='store_true',
+        help='Use random operator selection and earlist start time device selection')
+
+    parser.add_argument(
+        '--use_rl_op_est_device',
+        action='store_true',
+        help='Use RL operator selection and earlist start time device selection')
+
+    parser.add_argument(
+        '--use_random_placement',
+        action='store_true',
+        help='Use random sampling')
     return parser.parse_args()
 
 if __name__ == '__main__':

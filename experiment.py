@@ -239,7 +239,7 @@ def run_episodes(env,
                  burn_in_steps=5,
                  multi_selection=False,
                  explore=True,
-                 num_of_placement_samples=50,
+                 samples_to_ops_ratio=1.5,
                  use_baseline=True,
                  update_policy=True,
                  save_data=False,
@@ -261,6 +261,7 @@ def run_episodes(env,
         program = env.programs[program_id]
         network = env.networks[network_id]
 
+        num_of_samples = int( program.n_operators*  samples_to_ops_ratio)
 
         if use_full_graph:
             action_dict = env.full_graph_action_dict[program_id][network_id]
@@ -275,7 +276,7 @@ def run_episodes(env,
             'program_id': program_id,
             'init_seed': seed,
             'noise': noise,
-            'num_of_samples': num_of_placement_samples,
+            'num_of_samples': num_of_samples,
             'episodes': [],
             'sampled_placement': [],
             'latency_trace': []
@@ -288,7 +289,7 @@ def run_episodes(env,
         env.clear_buffer(program_id, network_id)
 
         start_time = time.time()
-        for t in range(num_of_placement_samples):
+        for t in range(num_of_samples):
             if new_episode:
                 ep_data = {}
                 ep_data['actions'] = []
@@ -346,7 +347,7 @@ def run_episodes(env,
             agent.saved_rewards.append(reward)
             ep_data['ep_return'] = reward + ep_data['ep_return'] * agent.gamma
 
-            end_episode = (len(case_data['sampled_placement']) == num_of_placement_samples)
+            end_episode = (len(case_data['sampled_placement']) == num_of_samples)
             if use_memory_buffer:
                 idx = env.push_to_last_buffer(program_id, network_id, cur_mapping.copy(), latency, 0)
                 if idx > -1:
@@ -378,10 +379,6 @@ def run_placeto_episodes(env,
                  program_ids,
                  network_ids,
                  seeds,
-                 use_bip_connection=False,
-                 multi_selection=False,
-                 explore=True,
-                 num_of_placement_samples=50,
                  use_baseline=True,
                  update_policy=True,
                  save_data=False,
@@ -405,7 +402,7 @@ def run_placeto_episodes(env,
             'program_id': program_id,
             'init_seed': seed,
             'noise': noise,
-            'num_of_samples': num_of_placement_samples,
+            'num_of_samples': program.n_operators,
             'episodes': [],
             'sampled_placement': [],
             'latency_trace': []
@@ -573,10 +570,13 @@ class Experiment_on_data:
                                   self.train_network_ids[i*20: i*20 + 20],
                                   self.train_init_seeds[i*20: i*20 + 20],
                                   use_full_graph=full_graph,
-                                  num_of_placement_samples = self.exp_cfg.num_of_samples_per_episode,
+                                  samples_to_ops_ratio = self.exp_cfg.samples_to_ops_ratio,
                                   update_policy=True,
                                   save_data=False,
                                   noise=self.exp_cfg.noise)
+                torch.save(self.agent.policy.state_dict(), os.path.join(self.logdir, f'policy_{i*20}.pk'))
+                torch.save(self.agent.embedding.state_dict(), os.path.join(self.logdir, f'embedding_{i*20}.pk'))
+
                 print(f"{i}th: Evaluating. ")
                 test_record = run_episodes(self.test_env,
                                             self.agent,
@@ -584,15 +584,12 @@ class Experiment_on_data:
                                             self.test_network_ids * self.exp_cfg.num_testing_episodes,
                                             self.test_init_seeds * self.exp_cfg.num_testing_episodes,
                                             use_full_graph=full_graph,
-                                            num_of_placement_samples=self.exp_cfg.num_of_samples_per_episode,
+                                            samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
                                             update_policy=False,
                                             save_data=False,
                                             noise=self.exp_cfg.noise)
                 record.append(train_record)
                 eval_records.append(test_record)
-
-            pickle.dump(record, open(os.path.join(self.logdir, "train.pk"), "wb"))
-            pickle.dump(eval_records, open(os.path.join(self.logdir, "eval.pk"), "wb"))
 
         else:
             record = run_episodes(self.train_env,
@@ -601,14 +598,14 @@ class Experiment_on_data:
                                   self.train_network_ids,
                                   self.train_init_seeds,
                                   use_full_graph=full_graph,
-                                  num_of_placement_samples=self.exp_cfg.num_of_samples_per_episode,
+                                  samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
                                   update_policy=True,
                                   save_data=True,
                                   save_dir=self.logdir,
                                   save_name='train',
                                   noise=self.exp_cfg.noise)
-        torch.save(self.agent.policy.state_dict(), os.path.join(self.logdir, 'policy.pk'))
-        torch.save(self.agent.embedding.state_dict(), os.path.join(self.logdir, 'embedding.pk'))
+            torch.save(self.agent.policy.state_dict(), os.path.join(self.logdir, 'policy.pk'))
+            torch.save(self.agent.embedding.state_dict(), os.path.join(self.logdir, 'embedding.pk'))
 
         return record
 
@@ -627,7 +624,7 @@ class Experiment_on_data:
                              use_full_graph=not self.exp_cfg.use_op_selection,
                              use_bip_connection=False,
                              explore=True,
-                             num_of_placement_samples=self.exp_cfg.num_of_samples_per_episode,
+                             samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
                              update_policy=True,
                              save_data=True,
                              save_dir=self.logdir,
@@ -642,7 +639,7 @@ class Experiment_on_data:
                              use_full_graph=not self.exp_cfg.use_op_selection,
                              use_bip_connection=False,
                              explore=True,
-                             num_of_placement_samples=self.exp_cfg.num_of_samples_per_episode,
+                             samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
                              update_policy=False,
                              save_data=True,
                              save_dir=self.logdir,
@@ -656,7 +653,7 @@ class Experiment_on_data:
             #                  use_full_graph=not self.exp_cfg.use_op_selection,
             #                  use_bip_connection=False,
             #                  explore=False,
-            #                  num_of_placement_samples=self.exp_cfg.num_of_samples_per_episode,
+            #                  samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
             #                  update_policy=False,
             #                  save_data=True,
             #                  save_dir=self.logdir,
@@ -770,7 +767,6 @@ class Experiment_placeto:
                                   self.train_program_ids[i*20: i*20 + 20],
                                   self.train_network_ids[i*20: i*20 + 20],
                                   self.train_init_seeds[i*20: i*20 + 20],
-                                  num_of_placement_samples = self.exp_cfg.num_of_samples_per_episode,
                                   update_policy=True,
                                   save_data=False,
                                   noise=self.exp_cfg.noise)
@@ -780,7 +776,6 @@ class Experiment_placeto:
                                             self.test_program_ids * self.exp_cfg.num_testing_episodes,
                                             self.test_network_ids * self.exp_cfg.num_testing_episodes,
                                             self.test_init_seeds * self.exp_cfg.num_testing_episodes,
-                                            num_of_placement_samples=self.exp_cfg.num_of_samples_per_episode,
                                             update_policy=False,
                                             save_data=False,
                                             noise=self.exp_cfg.noise)
@@ -796,7 +791,7 @@ class Experiment_placeto:
                                   self.train_program_ids,
                                   self.train_network_ids,
                                   self.train_init_seeds,
-                                  num_of_placement_samples=self.exp_cfg.num_of_samples_per_episode,
+                                  samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
                                   update_policy=True,
                                   save_data=True,
                                   save_dir=self.logdir,
@@ -822,7 +817,7 @@ class Experiment_placeto:
                              use_full_graph=not self.exp_cfg.use_op_selection,
                              use_bip_connection=False,
                              explore=True,
-                             num_of_placement_samples=self.exp_cfg.num_of_samples_per_episode,
+                             samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
                              update_policy=True,
                              save_data=True,
                              save_dir=self.logdir,
@@ -837,7 +832,7 @@ class Experiment_placeto:
                              use_full_graph=not self.exp_cfg.use_op_selection,
                              use_bip_connection=False,
                              explore=True,
-                             num_of_placement_samples=self.exp_cfg.num_of_samples_per_episode,
+                             samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
                              update_policy=False,
                              save_data=True,
                              save_dir=self.logdir,
@@ -851,7 +846,7 @@ class Experiment_placeto:
             #                  use_full_graph=not self.exp_cfg.use_op_selection,
             #                  use_bip_connection=False,
             #                  explore=False,
-            #                  num_of_placement_samples=self.exp_cfg.num_of_samples_per_episode,
+            #                  samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
             #                  update_policy=False,
             #                  save_data=True,
             #                  save_dir=self.logdir,
@@ -865,7 +860,7 @@ class Experiment_placeto:
 #           agent,
 #           init_mapping,
 #           episodes,
-#           num_of_placement_samples=50,
+#           samples_to_ops_ratio=50,
 #           update_op_net=True,
 #           update_dev_net=True,
 #           greedy_dev_selection=True,
@@ -884,7 +879,7 @@ class Experiment_placeto:
 #
 #     mask_dev = torch.zeros(network.n_devices).to(device)
 #
-#     currrent_stop_iter = num_of_placement_samples
+#     currrent_stop_iter = samples_to_ops_ratio
 #     if short_earlier_ep:
 #         currrent_stop_iter = early_stop
 #
