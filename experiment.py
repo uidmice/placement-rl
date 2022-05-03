@@ -263,6 +263,8 @@ def run_episodes(env,
 
         num_of_samples = int( program.n_operators*  samples_to_ops_ratio)
 
+        constraints = env.get_placement_constraints(program_id, network_id)
+
         if use_full_graph:
             action_dict = env.full_graph_action_dict[program_id][network_id]
             node_dict = env.full_graph_node_dict[program_id][network_id]
@@ -307,7 +309,6 @@ def run_episodes(env,
                 last_latency, path, G_stats = env.simulate(program_id, network_id, cur_mapping, noise)
                 env.push_to_buffer(program_id, network_id, cur_mapping.copy(), last_latency, True)
 
-
                 new_episode = False
 
             if use_full_graph:
@@ -329,11 +330,11 @@ def run_episodes(env,
                     cur_mapping[s] = action
                     ep_data['actions'].append([s, action])
             else:
-                pdb.set_trace()
+                # pdb.set_trace()
                 g = env.get_cardinal_graph(program_id, network_id, cur_mapping, G_stats, path).to(device)
                 s = agent.op_selection(g, mask)
                 action = agent.dev_selection_est(program, network, cur_mapping, G_stats, s,
-                                                 program.placement_constraints[s])
+                                                 constraints[s])
                 cur_mapping[s] = action
                 ep_data['actions'].append([s, action])
 

@@ -89,11 +89,6 @@ def get_args():
                         help='capacity of the memory buffer for storing placement  (default: 10)')
 
 
-    parser.add_argument('--use_op_selection',
-                        default=False,
-                        help='use two-step heuristic method (operator selection network + est device selection)')
-                        # action='store_true',
-
 
     parser.add_argument('--eval',
                         action='store_true',
@@ -118,19 +113,11 @@ def get_args():
         help='Use placeto')
 
     parser.add_argument(
-        '--use_random_op_est_device',
-        action='store_true',
-        help='Use random operator selection and earlist start time device selection')
-
-    parser.add_argument(
         '--use_rl_op_est_device',
+        dest='use_op_selection',
         action='store_true',
         help='Use RL operator selection and earlist start time device selection')
 
-    parser.add_argument(
-        '--use_random_placement',
-        action='store_true',
-        help='Use random sampling')
     return parser.parse_args()
 
 if __name__ == '__main__':
