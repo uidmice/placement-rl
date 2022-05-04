@@ -247,12 +247,14 @@ class PlaceToAgent:
         self.calculated_compute = None
 
     def reset(self):
+        self.selected_sequence = []
         self.available_ops = None
         self.calculated_byte = None
         self.calculated_compute = None
 
     def op_selection(self, g, program, cur_mapping):
         # The first selection on this op
+        # pdb.set_trace()
         if self.available_ops is None:
             self.available_ops = [*range(g.number_of_nodes())]
 
@@ -290,6 +292,7 @@ class PlaceToAgent:
 
         node_done = torch.zeros([program.n_operators, 1], dtype = torch.long).to(device)
         for idx in self.selected_sequence:
+            # pdb.set_trace()
             if idx != selected_op:
                 node_done[idx] = 1
         node_done = self.node_done_embedding(node_done).squeeze().unsqueeze(1)
