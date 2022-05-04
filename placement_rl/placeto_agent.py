@@ -68,27 +68,34 @@ class MP(nn.Module):
                  node_dim,
                  edge_dim,
                  out_dim,
-                 reverse):
+                 reverse,
+                 first_layer):
         super(MP, self).__init__()
 
         self.node_dim = node_dim
         self.edge_dim = edge_dim
         self.out_dim = out_dim
         self.reverse = reverse
+        self.first_layer = first_layer
 
-        self.pre_layers = nn.Sequential(
-            nn.Linear(node_dim + edge_dim, node_dim + edge_dim),
-            nn.ReLU(),
-            nn.Linear(node_dim + edge_dim, node_dim + edge_dim),
-            nn.ReLU(),
-            nn.Linear(node_dim + edge_dim, node_dim + edge_dim))
+        if first_layer:
+            self.pre_layers = nn.Sequential(
+                nn.Linear(node_dim, node_dim),
+                nn.ReLU())
 
-        self.update_layers = nn.Sequential(
-            nn.Linear(2 * node_dim + edge_dim, node_dim + edge_dim),
-            nn.ReLU(),
-            nn.Linear(node_dim + edge_dim, node_dim + edge_dim),
-            nn.ReLU(),
-            nn.Linear(node_dim + edge_dim, out_dim))
+            self.update_layers = nn.Sequential(
+                nn.Linear(2*node_dim, node_dim),
+                nn.ReLU(),
+                nn.Linear(node_dim, node_dim))
+        else:
+            self.pre_layers = nn.Sequential(
+                nn.Linear(2*node_dim, 2*node_dim),
+                nn.ReLU())
+
+            self.update_layers = nn.Sequential(
+                nn.Linear(4*node_dim, node_dim),
+                nn.ReLU(),
+                nn.Linear(node_dim, node_dim))
 
         self.apply(weights_init_)
         self.reset_parameters()
@@ -99,7 +106,7 @@ class MP(nn.Module):
 
     def msg_func(self, edges):
         # pdb.set_trace()
-        msg = self.pre_layers(torch.cat([edges.src['x'], edges.data['x']], dim=1))
+        msg = self.pre_layers(edges.src['x'])
         return {'m': msg}
 
     def reduce_func(self, nodes):
@@ -116,12 +123,54 @@ class MP(nn.Module):
         return {'h': h}
 
     def forward(self, g):
-        g.ndata['z'] = torch.randn(g.num_nodes(), self.node_dim + self.edge_dim).to(device)
+        if self.first_layer:
+            g.ndata['z'] = torch.randn(g.num_nodes(), self.node_dim).to(device)
+        else:
+            g.ndata['z'] = torch.randn(g.num_nodes(), self.node_dim * 2).to(device)
         dgl.prop_nodes_topo(g, self.msg_func,
                             self.reduce_func,
                             self.reverse,
                             self.node_update)
-        h = g.ndata.pop('h')
+        h = g.ndata['h']
+        return h
+
+
+
+class MP_preprocessing(nn.Module):
+    def __init__(self):
+        super(MP_preprocessing, self).__init__()
+
+    def reset_parameters(self):
+        return
+
+    def msg_func(self, edges):
+        # pdb.set_trace()
+        msg = edges.data['x']
+
+        # pdb.set_trace()
+        if not msg.shape[0] > 0:
+            return {'m': torch.zeros(1).to(device)}
+        else:
+            return {'m': msg[:,0]}
+
+    def reduce_func(self, nodes):
+        # pdb.set_trace()
+        z = torch.mean((nodes.mailbox['m']).squeeze(), 0).unsqueeze(0).unsqueeze(0)
+        # pdb.set_trace()
+        return {'z': z}
+
+    def node_update(self, nodes):
+        # pdb.set_trace()
+        return {'byte': nodes.data['z']}
+
+    def forward(self, g):
+        g.ndata['z'] = torch.zeros(g.num_nodes()).to(device)
+        g.ndata['byte'] = torch.zeros(g.num_nodes()).to(device)
+        dgl.prop_nodes_topo(g, self.msg_func,
+                            self.reduce_func,
+                            False,
+                            self.node_update)
+        h = g.ndata['byte']
         return h
 
 
@@ -144,87 +193,115 @@ class PlaceToAgent:
         self.lr = lr
         self.gamma = gamma
 
-        self.MP_forward = MP(node_dim, edge_dim, out_dim // 2, reverse=True).to(device)
-        self.MP_reverse = MP(node_dim, edge_dim, out_dim // 2, reverse=False).to(device)
+        self.mapping_embedding = torch.nn.Embedding(n_device, 1).to(device)
+        self.node_cur_embedding = torch.nn.Embedding(2, 1).to(device)
+        self.node_done_embedding = torch.nn.Embedding(2, 1).to(device)
+
+        self.MP_forward_1 = MP(node_dim, edge_dim, out_dim // 2, reverse=True, first_layer = True).to(device)
+        self.MP_reverse_1 = MP(node_dim, edge_dim, out_dim // 2, reverse=False, first_layer = True).to(device)
+
+        self.MP_forward_2 = MP(node_dim, edge_dim, out_dim // 2, reverse=True, first_layer = False).to(device)
+        self.MP_reverse_2 = MP(node_dim, edge_dim, out_dim // 2, reverse=False, first_layer = False).to(device)
+
+        self.MP_forward_3 = MP(node_dim, edge_dim, out_dim // 2, reverse=True, first_layer = False).to(device)
+        self.MP_reverse_3 = MP(node_dim, edge_dim, out_dim // 2, reverse=False, first_layer = False).to(device)
+
+        self.mp_preprocess = MP_preprocessing()
 
         self.pred_net_prev = nn.Sequential(
-            nn.Linear(out_dim, out_dim),
-            nn.ReLU(),
-            nn.Linear(out_dim, out_dim),
-            nn.ReLU(),
-            nn.Linear(out_dim, out_dim)
+            nn.Linear(node_dim*2, node_dim),
+            nn.ReLU()
         ).to(device)
 
-        self.pred_net_later = nn.Sequential(
-            nn.Linear(out_dim, out_dim),
-            nn.ReLU(),
-            nn.Linear(out_dim, out_dim),
-            nn.ReLU(),
-            nn.Linear(out_dim, out_dim)
-        ).to(device)
 
         self.desc_net_prev = nn.Sequential(
-            nn.Linear(out_dim, out_dim),
-            nn.ReLU(),
-            nn.Linear(out_dim, out_dim),
-            nn.ReLU(),
-            nn.Linear(out_dim, out_dim)
+            nn.Linear(node_dim*2, node_dim),
+            nn.ReLU()
         ).to(device)
 
-        self.desc_net_later = nn.Sequential(
-            nn.Linear(out_dim, out_dim),
-            nn.ReLU(),
-            nn.Linear(out_dim, out_dim),
-            nn.ReLU(),
-            nn.Linear(out_dim, out_dim)
-        ).to(device)
 
         self.parallel_net_prev = nn.Sequential(
-            nn.Linear(out_dim, out_dim),
-            nn.ReLU(),
-            nn.Linear(out_dim, out_dim),
-            nn.ReLU(),
-            nn.Linear(out_dim, out_dim)
+            nn.Linear(node_dim*2, node_dim),
+            nn.ReLU()
         ).to(device)
 
-        self.parallel_net_later = nn.Sequential(
-            nn.Linear(out_dim, out_dim),
-            nn.ReLU(),
-            nn.Linear(out_dim, out_dim),
-            nn.ReLU(),
-            nn.Linear(out_dim, out_dim)
-        ).to(device)
-
-
-
-        self.policy = Device_SoftmaxActor(out_dim * 4, n_device, hidden_dim).to(device)
-        self.optim = torch.optim.Adam(list(self.MP_forward.parameters()) +
-                                      list(self.MP_reverse.parameters()) +
+        self.policy = Device_SoftmaxActor(node_dim * 5, n_device, hidden_dim).to(device)
+        self.optim = torch.optim.Adam(list(self.MP_forward_1.parameters()) +
+                                      list(self.MP_reverse_1.parameters()) +
+                                      list(self.MP_forward_2.parameters()) +
+                                      list(self.MP_reverse_2.parameters()) +
+                                      list(self.MP_forward_3.parameters()) +
+                                      list(self.MP_reverse_3.parameters()) +
                                       list(self.pred_net_prev.parameters()) +
-                                      list(self.pred_net_later.parameters()) +
                                       list(self.desc_net_prev.parameters()) +
-                                      list(self.desc_net_later.parameters()) +
                                       list(self.parallel_net_prev.parameters()) +
-                                      list(self.parallel_net_later.parameters()) +
                                       list(self.policy.parameters()), lr=lr)
+
         self.selected_sequence = []
         self.target_device_sequence = []
         self.saved_rewards = []
         self.log_probs = []
 
         self.available_ops = None
+        self.calculated_byte = None
+        self.calculated_compute = None
 
     def reset(self):
         self.available_ops = None
+        self.calculated_byte = None
+        self.calculated_compute = None
 
-    def op_selection(self, g):
+    def op_selection(self, g, program, cur_mapping):
         # The first selection on this op
         if self.available_ops is None:
             self.available_ops = [*range(g.number_of_nodes())]
 
+            self.calculated_compute = []
+            for node in program.P.nodes:
+                program.P.nodes[node]["byte"] = 0
+                program.P.nodes[node]['n_out'] = 0
+                self.calculated_compute.append(program.P.nodes[node]["compute"])
+
+            for edge in program.P.edges:
+                src = edge[0]
+                program.P.nodes[src]['byte'] += program.P.edges[edge]['bytes']
+                program.P.nodes[src]["n_out"] += 1
+
+            self.calculated_byte = []
+            for node in program.P.nodes:
+                if program.P.nodes[node]['n_out'] != 0:
+                    program.P.nodes[node]["byte"] /= program.P.nodes[node]['n_out']
+                self.calculated_byte.append(program.P.nodes[node]["byte"])
+
+            # bytes = self.mp_preprocess(g)
+
+
+
         selected_op = np.random.choice(self.available_ops)
         self.available_ops.remove(selected_op)
         self.selected_sequence.append(selected_op)
+
+        mapping = torch.tensor(cur_mapping).to(device)
+        mapping = self.mapping_embedding(mapping)
+
+        node_cur = torch.zeros([program.n_operators, 1], dtype = torch.long).to(device)
+        node_cur[selected_op] = 1
+        node_cur = self.node_cur_embedding(node_cur).squeeze().unsqueeze(1)
+
+        node_done = torch.zeros([program.n_operators, 1], dtype = torch.long).to(device)
+        for idx in self.selected_sequence:
+            if idx != selected_op:
+                node_done[idx] = 1
+        node_done = self.node_done_embedding(node_done).squeeze().unsqueeze(1)
+
+        bytes = torch.tensor(self.calculated_byte).to(device)
+        bytes = bytes.reshape(-1, 1)
+        computes = torch.tensor(self.calculated_compute).to(device)
+        computes = computes.reshape(-1, 1)
+
+        feats = torch.cat([computes, bytes, mapping, node_cur, node_done], axis = 1)
+
+        g.ndata['x'] = feats
 
         if len(self.available_ops) > 0:
             end = False
@@ -242,6 +319,7 @@ class PlaceToAgent:
         constraint = op_constraints[op]
         dev_constraints = network.device_constraints
 
+
         # Mask available device.
         mask = [0 for _ in range(self.n_device)]
         for dev in dev_constraints:
@@ -249,11 +327,20 @@ class PlaceToAgent:
             if constraint in tmp:
                 mask[dev] = 1
 
-        hf = self.MP_forward(g)
-        hb = self.MP_reverse(g)
-        h = torch.cat([hf, hb], dim=1)
+        hf_1 = self.MP_forward_1(g)
+        hb_1 = self.MP_reverse_1(g)
+        h_1 = torch.cat([hf_1, hb_1], dim=1)
+        g.ndata['x'] = h_1
 
-        # pdb.set_trace()
+        hf_2 = self.MP_forward_2(g)
+        hb_2 = self.MP_reverse_2(g)
+        h_2 = torch.cat([hf_2,hb_2], dim = 1)
+        g.ndata['x'] = h_2
+
+        hf_3 = self.MP_forward_3(g)
+        hb_3 = self.MP_reverse_3(g)
+        h = torch.cat([hf_3, hb_3], dim=1)
+        g.ndata['x'] = h
 
         all_nodes = [*range(program.n_operators)]
 
@@ -265,22 +352,24 @@ class PlaceToAgent:
         predecessors = list(nx.ancestors(op_graph, op))
         all_nodes = [i for i in all_nodes if i not in predecessors]
         pred_embeddings = self.pred_net_prev(h[predecessors])
-        pred_embeddings = self.pred_net_later(torch.sum(pred_embeddings, dim = 0))
+        pred_embeddings = torch.sum(pred_embeddings, dim = 0)
 
         # Find descendants
         descendants = list(nx.descendants(op_graph, op))
         all_nodes = [i for i in all_nodes if i not in descendants]
         desc_embeddings = self.desc_net_prev(h[descendants])
-        desc_embeddings = self.desc_net_later(torch.sum(desc_embeddings, dim = 0))
+        desc_embeddings = torch.sum(desc_embeddings, dim = 0)
 
         # Parallels
         if len(all_nodes) == 0:
-            parallel_embeddings = self.parallel_net_later(torch.zeros(h.shape[1]).to(device))
+            parallel_embeddings = torch.zeros(h.shape[1]//2).to(device)
         else:
             parallel_embeddings = self.parallel_net_prev(h[all_nodes])
-            parallel_embeddings = self.parallel_net_later(torch.sum(parallel_embeddings, dim = 0))
+            parallel_embeddings = torch.sum(parallel_embeddings, dim = 0)
 
         embedding = torch.cat((node_embedding, pred_embeddings, desc_embeddings, parallel_embeddings), dim = 0)
+
+
         probs = self.policy(embedding, mask)
 
         device_distribution = torch.distributions.Categorical(probs = probs)
@@ -292,31 +381,32 @@ class PlaceToAgent:
 
 
     def finish_episode(self, update_network=True, use_baseline=True):
-        R = 0
-        policy_loss = 0
-        returns = []
+        if update_network:
+            R = 0
+            policy_loss = 0
+            returns = []
 
-        for r in self.saved_rewards[::1]:
-            R = r + self.gamma * R
-            returns.insert(0, R)
+            for r in self.saved_rewards[::1]:
+                R = r + self.gamma * R
+                returns.insert(0, R)
 
-        if use_baseline:
-            for i in range(len(self.saved_rewards)):
-                if i == 0:
-                    bk = self.saved_rewards[0]
-                else:
-                    try:
-                        bk = sum(self.saved_rewards[:i+1]) / len(self.saved_rewards[:i+1])
-                    except:
-                        bk = sum(self.saved_rewards) / len(self.saved_rewards)
-                returns[i] -= bk
-        returns = torch.tensor(returns).to(device)
-        self.optim.zero_grad()
-        for log_prob, R in zip(self.log_probs, returns):
-            policy_loss = policy_loss - log_prob * R
-        policy_loss.backward()
-        self.optim.step()
+            if use_baseline:
+                for i in range(len(self.saved_rewards)):
+                    if i == 0:
+                        bk = self.saved_rewards[0]
+                    else:
+                        try:
+                            bk = sum(self.saved_rewards[:i+1]) / len(self.saved_rewards[:i+1])
+                        except:
+                            bk = sum(self.saved_rewards) / len(self.saved_rewards)
+                    returns[i] -= bk
+            returns = torch.tensor(returns).to(device)
+            self.optim.zero_grad()
+            for log_prob, R in zip(self.log_probs, returns):
+                policy_loss = policy_loss - log_prob * R
+            policy_loss.backward()
+            self.optim.step()
 
-        self.available_ops = None
-        del self.saved_rewards[:]
-        del self.log_probs[:]
+            self.available_ops = None
+            del self.saved_rewards[:]
+            del self.log_probs[:]

@@ -427,7 +427,7 @@ def run_placeto_episodes(env,
 
 
             g = env.get_cardinal_graph(program_id, network_id, cur_mapping, G_stats, path).to(device)
-            s, end = agent.op_selection(g)
+            s, end = agent.op_selection(g, program, cur_mapping)
             action = agent.dev_selection(g,
                                          program,
                                          network,
@@ -716,7 +716,7 @@ class Experiment_placeto:
         self.test_network_ids = [l[0] for l in set]
         self.test_init_seeds = [l[2] for l in set]
 
-        self.agent = PlaceToAgent(PlacementEnv.get_node_feature_dim(),
+        self.agent = PlaceToAgent(5,
                                   PlacementEnv.get_edge_feature_dim(),
                                   self.exp_cfg.output_dim,
                                   n_device = self.train_networks[0].n_devices,
@@ -786,43 +786,41 @@ class Experiment_placeto:
                                   save_name='train',
                                   noise=self.exp_cfg.noise)
         torch.save(self.agent.policy.state_dict(), os.path.join(self.logdir, 'policy.pk'))
-        torch.save(self.agent.embedding.state_dict(), os.path.join(self.logdir, 'embedding.pk'))
+        torch.save(self.agent.MP_forward_1.state_dict(), os.path.join(self.logdir, 'MP_forward_1.pk'))
+        torch.save(self.agent.MP_reverse_1.state_dict(), os.path.join(self.logdir, 'MP_reverse_1.pk'))
+        torch.save(self.agent.pred_net_prev.state_dict(), os.path.join(self.logdir, 'pred_net_prev.pk'))
+        torch.save(self.agent.desc_net_prev.state_dict(), os.path.join(self.logdir, 'desc_net_prev.pk'))
+        torch.save(self.agent.parallel_net_prev.state_dict(), os.path.join(self.logdir, 'parallel_net_prev.pk'))
 
         return record
 
     def test(self):
         for seed, program_id, network_id in zip(self.test_init_seeds, self.test_program_ids, self.test_network_ids):
             self.agent.policy.load_state_dict(torch.load(os.path.join(self.logdir, 'policy.pk')))
-            self.agent.embedding.load_state_dict(torch.load(os.path.join(self.logdir, 'embedding.pk')))
+            self.agent.MP_forward.load_state_dict(torch.load(os.path.join(self.logdir, 'MP_forward.pk')))
+            self.agent.MP_reverse.load_state_dict(torch.load(os.path.join(self.logdir, 'MP_reverse.pk')))
+            self.agent.pred_net_prev.load_state_dict(torch.load(os.path.join(self.logdir, 'pred_net_prev.pk')))
+            self.agent.desc_net_prev.load_state_dict(torch.load(os.path.join(self.logdir, 'desc_net_prev.pk')))
+            self.agent.parallel_net_prev.load_state_dict(torch.load(os.path.join(self.logdir, 'parallel_net_prev.pk')))
 
-            if self.exp_cfg.num_tuning_episodes:
-                print('===========================================================================')
-                print(f"RUNNING {self.exp_cfg.num_tuning_episodes} tuning episodes for network {network_id}/program {program_id}.")
-                run_episodes(self.test_env, self.agent,
-                             [program_id] * self.exp_cfg.num_tuning_episodes,
-                             [network_id] * self.exp_cfg.num_tuning_episodes,
-                             [seed] * self.exp_cfg.num_tuning_episodes,
-                             use_full_graph=not self.exp_cfg.use_op_selection,
-                             use_bip_connection=False,
-                             explore=True,
-                             samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
-                             update_policy=True,
-                             save_data=True,
-                             save_dir=self.logdir,
-                             save_name=f'tune_program_{program_id}_network_{network_id}_seed_{seed}',
-                             noise=self.exp_cfg.noise)
+        if self.exp_cfg.num_tuning_episodes:
+            print('===========================================================================')
+            print(f"RUNNING {self.exp_cfg.num_tuning_episodes} tuning episodes for network {network_id}/program {program_id}.")
+            train_record = run_placeto_episodes(self.train_env,
+                                                self.agent,
+                                                self.train_program_ids[i * 20: i * 20 + 20],
+                                                self.train_network_ids[i * 20: i * 20 + 20],
+                                                self.train_init_seeds[i * 20: i * 20 + 20],
+                                                update_policy=True,
+                                                save_data=False,
+                                                noise=self.exp_cfg.noise)
             print('===========================================================================')
             print(f"RUNNING {self.exp_cfg.num_testing_episodes} testing episodes for network {network_id}/program {program_id}.")
-            run_episodes(self.test_env, self.agent,
-                         [program_id] * self.exp_cfg.num_testing_episodes,
-                         [network_id] * self.exp_cfg.num_testing_episodes,
-                             [seed] * self.exp_cfg.num_testing_episodes,
-                             use_full_graph=not self.exp_cfg.use_op_selection,
-                             use_bip_connection=False,
-                             explore=True,
-                             samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
-                             update_policy=False,
-                             save_data=True,
-                             save_dir=self.logdir,
-                             save_name=f'test_explore_program_{program_id}_network_{network_id}_seed_{seed}',
-                             noise=self.exp_cfg.noise)
+            run_placeto_episodes(self.test_env,
+                                 self.agent,
+                                 self.test_program_ids * self.exp_cfg.num_testing_episodes,
+                                 self.test_network_ids * self.exp_cfg.num_testing_episodes,
+                                 self.test_init_seeds * self.exp_cfg.num_testing_episodes,
+                                 update_policy=False,
+                                 save_data=False,
+                                 noise=self.exp_cfg.noise)
