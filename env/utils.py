@@ -53,6 +53,7 @@ def graph_dag_structure(v,
                         conn_prob=0.1,
                         visualize=False):
     np.random.seed(seed)
+    random.seed(seed)
 
     height_mean = np.sqrt(v) / alpha
     height = int(np.ceil(np.random.uniform(height_mean * 0.8, height_mean * 1.2)))
