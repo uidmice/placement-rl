@@ -655,10 +655,16 @@ class Experiment_on_data:
 class Experiment_placeto:
     def __init__(self, exp_config):
         self.exp_cfg = exp_config
-        self.logdir = os.path.join(
-            self.exp_cfg.logdir, 'placeto_{}_{}'.format(
-                datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
-                self.exp_cfg.logdir_suffix))
+
+        if self.exp_cfg.logdir_suffix:
+            self.logdir = os.path.join(
+                self.exp_cfg.logdir, self.exp_cfg.logdir_suffix)
+
+        else:
+            self.logdir = os.path.join(
+                self.exp_cfg.logdir, 'placeto_{}_{}'.format(
+                    datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
+                    self.exp_cfg.logdir_suffix))
         if not os.path.exists(self.logdir):
             os.makedirs(self.logdir)
 
@@ -789,6 +795,10 @@ class Experiment_placeto:
         torch.save(self.agent.policy.state_dict(), os.path.join(self.logdir, 'policy.pk'))
         torch.save(self.agent.MP_forward_1.state_dict(), os.path.join(self.logdir, 'MP_forward_1.pk'))
         torch.save(self.agent.MP_reverse_1.state_dict(), os.path.join(self.logdir, 'MP_reverse_1.pk'))
+        torch.save(self.agent.MP_forward_2.state_dict(), os.path.join(self.logdir, 'MP_forward_2.pk'))
+        torch.save(self.agent.MP_reverse_2.state_dict(), os.path.join(self.logdir, 'MP_reverse_2.pk'))
+        torch.save(self.agent.MP_forward_3.state_dict(), os.path.join(self.logdir, 'MP_forward_3.pk'))
+        torch.save(self.agent.MP_reverse_3.state_dict(), os.path.join(self.logdir, 'MP_reverse_3.pk'))
         torch.save(self.agent.pred_net_prev.state_dict(), os.path.join(self.logdir, 'pred_net_prev.pk'))
         torch.save(self.agent.desc_net_prev.state_dict(), os.path.join(self.logdir, 'desc_net_prev.pk'))
         torch.save(self.agent.parallel_net_prev.state_dict(), os.path.join(self.logdir, 'parallel_net_prev.pk'))
@@ -798,11 +808,27 @@ class Experiment_placeto:
     def test(self):
         for seed, program_id, network_id in zip(self.test_init_seeds, self.test_program_ids, self.test_network_ids):
             self.agent.policy.load_state_dict(torch.load(os.path.join(self.logdir, 'policy.pk')))
-            self.agent.MP_forward.load_state_dict(torch.load(os.path.join(self.logdir, 'MP_forward.pk')))
-            self.agent.MP_reverse.load_state_dict(torch.load(os.path.join(self.logdir, 'MP_reverse.pk')))
+            self.agent.MP_forward_1.load_state_dict(torch.load(os.path.join(self.logdir, 'MP_forward_1.pk')))
+            self.agent.MP_reverse_1.load_state_dict(torch.load(os.path.join(self.logdir, 'MP_reverse_1.pk')))
+            self.agent.MP_forward_2.load_state_dict(torch.load(os.path.join(self.logdir, 'MP_forward_2.pk')))
+            self.agent.MP_reverse_2.load_state_dict(torch.load(os.path.join(self.logdir, 'MP_reverse_2.pk')))
+            self.agent.MP_forward_3.load_state_dict(torch.load(os.path.join(self.logdir, 'MP_forward_3.pk')))
+            self.agent.MP_reverse_3.load_state_dict(torch.load(os.path.join(self.logdir, 'MP_reverse_3.pk')))
             self.agent.pred_net_prev.load_state_dict(torch.load(os.path.join(self.logdir, 'pred_net_prev.pk')))
             self.agent.desc_net_prev.load_state_dict(torch.load(os.path.join(self.logdir, 'desc_net_prev.pk')))
             self.agent.parallel_net_prev.load_state_dict(torch.load(os.path.join(self.logdir, 'parallel_net_prev.pk')))
+
+        print('===========================================================================')
+        print(
+            f"RUNNING {self.exp_cfg.num_tuning_episodes} tuning episodes for network {network_id}/program {program_id}.")
+        train_record = run_placeto_episodes(self.train_env,
+                                            self.agent,
+                                            self.test_program_ids * self.exp_cfg.num_testing_episodes,
+                                            self.test_network_ids * self.exp_cfg.num_testing_episodes,
+                                            self.test_init_seeds * self.exp_cfg.num_testing_episodes,
+                                            update_policy=False,
+                                            save_data=True,
+                                            noise=self.exp_cfg.noise)
 
         if self.exp_cfg.num_tuning_episodes:
             print('===========================================================================')
@@ -823,5 +849,5 @@ class Experiment_placeto:
                                  self.test_network_ids * self.exp_cfg.num_testing_episodes,
                                  self.test_init_seeds * self.exp_cfg.num_testing_episodes,
                                  update_policy=False,
-                                 save_data=False,
+                                 save_data=True,
                                  noise=self.exp_cfg.noise)
