@@ -30,7 +30,6 @@ class Device_SoftmaxActor(nn.Module):
 
 
     def forward(self, x, mask=None):
-        # pdb.set_trace()
         x = self.nn(x)
         if mask is None:
             mask = [1 for i in range(x.shape[0])]
@@ -66,41 +65,41 @@ class Aggregator(nn.Module):
         if self.reverse:
             g = dgl.reverse(g)
         g.update_all(self.msg_func, fn.sum('m', 'z'), self.node_update)
-        h = g.ndata['h']
+        h = g.ndata.pop('h')
         return h
 
 
 class MP(nn.Module):
-    def __init__(self, emb_dim,hidden_dim,  k):
+    def __init__(self, emb_dim,  k):
         super(MP, self).__init__()
 
         self.emb_dim = emb_dim
         self.k = k
 
-        self.fpa = Aggregator(emb_dim, hidden_dim, emb_dim, False)
-        self.bpa = Aggregator(emb_dim, hidden_dim, emb_dim, True)
+        self.fpa = Aggregator(emb_dim, emb_dim, emb_dim, False)
+        self.bpa = Aggregator(emb_dim, emb_dim, emb_dim, True)
 
-        self.node_transform = FNN(emb_dim, [hidden_dim], emb_dim)
+        self.node_transform = FNN(emb_dim, [emb_dim], emb_dim)
 
     def forward(self, g):
         self_trans = self.node_transform(g.ndata['x'])
         def message_pass(agg, sink):
-            g.ndata['y'] = self_trans
+            g.ndata['y'] = self_trans.clone()
             for i in range(self.k):
-                h = agg(g)
+                h = agg(g).clone()
                 h[sink, :] = 0
-                h += self_trans
+                h = self_trans + h
                 g.ndata['y'] = h
             return g.ndata['y']
 
-        out_fpa = message_pass(self.fpa, g.num_of_nodes()-1)
+        out_fpa = message_pass(self.fpa, len(g.nodes())-1)
         out_bpa = message_pass(self.bpa, 0)
         return torch.cat([out_fpa, out_bpa], dim=1)
 
 class PlaceToEmbedding(nn.Module):
-    def __init__(self, emb_size, hidden_dim, k):
+    def __init__(self, emb_size, k):
         super(PlaceToEmbedding, self).__init__()
-        self.mp = MP(emb_size, hidden_dim, k)
+        self.mp = MP(emb_size, k)
         self.agg_p = Aggregator(emb_size * 2, emb_size * 2, emb_size * 2, False)
         self.agg_c = Aggregator(emb_size * 2, emb_size * 2, emb_size * 2, True)
         self.agg_r = Aggregator(emb_size * 2, emb_size * 2, emb_size * 2, False)
@@ -129,7 +128,7 @@ class PlaceToAgent:
         self.gamma = gamma
 
         self.policy = Device_SoftmaxActor(node_dim * 8, n_device, hidden_dim).to(device)
-        self.embedding = PlaceToEmbedding(node_dim, hidden_dim, k)
+        self.embedding = PlaceToEmbedding(node_dim, k)
         self.optim = torch.optim.Adam(list(self.embedding.parameters()) +
                                       list(self.policy.parameters()), lr=lr)
 
@@ -145,22 +144,29 @@ class PlaceToAgent:
         emb = self.embedding(g)
         g.ndata['y'] = emb
 
+        if len(program.op_parents[op]):
+            p_g = dgl.node_subgraph(g, [op] + program.op_parents[op])
+            pred_embeddings = self.embedding.agg_p(p_g)[0, :]
+        else:
+            pred_embeddings = torch.zeros(self.node_dim * 2)
 
-        p_g = dgl.node_subgraph(g, [op] + program.op_parents[op])
-        pred_embeddings = self.embedding.agg_p(p_g)[0, :]
-
-        # Find descendants
-        c_g = dgl.node_subgraph(g, [op] + program.op_children[op])
-        desc_embeddings = self.embedding.agg_c(c_g)[0, :]
+        if len(program.op_children[op]):
+            c_g = dgl.node_subgraph(g, [op] + program.op_children[op])
+            desc_embeddings = self.embedding.agg_c(c_g)[0, :]
+        else:
+            desc_embeddings = torch.zeros(self.node_dim * 2)
 
         # Parallels
         r = program.op_parallel[op]
-        r_g = dgl.graph(([0] * len(r), range(len(r))))
-        r_g.ndata['y'] = emb[[0]+r, :]
-        parallel_embeddings = self.embedding.agg_r(r_g)[0, :]
+        if len(r):
+            r_g = dgl.graph(([0] * len(r), range(1, len(r)+1)))
+            idx = [op]+r
+            r_g.ndata['y'] = emb[idx, :]
+            parallel_embeddings = self.embedding.agg_r(r_g)[0, :]
+        else:
+            parallel_embeddings = torch.zeros(self.node_dim * 2)
 
         node_embedding = emb[op, :]
-
         embedding = torch.cat((pred_embeddings, desc_embeddings, parallel_embeddings, node_embedding), dim = -1)
 
 

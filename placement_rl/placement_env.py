@@ -293,6 +293,7 @@ class PlacementEnv:
         bytes = torch.tensor(bytes)
         comm_delay = torch.tensor(comm_delay)
         comm_rate = torch.tensor(comm_rate)
+        comm_time = torch.tensor(comm_time)
         criticality = torch.tensor(criticality)
 
         feat = {'bytes': bytes,
@@ -362,16 +363,18 @@ class PlacementEnv:
         feat = {'comp_time': torch.tensor(
                     [np.mean(G_stats.nodes[o]['comp_time']) for o in range(program.n_operators)]),
                 'output_size': torch.tensor(
-                    [max([program.P.edges[e]['bytes'] for e in program.P.out_edges(o)]) for o in range(program.n_operators)]),
+                    [max([program.P.edges[e]['bytes'] for e in program.P.out_edges(o)] + [0]) for o in range(program.n_operators)]),
                 'cur_placement': 2 * torch.tensor(mapping)/network.n_devices - 1}
         feat['comp_time'] = (feat['comp_time'] - torch.mean(feat['comp_time']))/(torch.std(feat['comp_time']) + 0.001)
+        feat['output_size'] = (feat['output_size'] - torch.mean(feat['output_size']))/(torch.std(feat['output_size']) + 0.001)
+
         feat['is_cur'] = torch.zeros(program.n_operators)
         feat['is_cur'][cur_op] = 1
         feat['is_done'] = torch.zeros(program.n_operators)
         if len(done_nodes):
             feat['is_done'][done_nodes] = 1
 
-        g = dgl.from_networkx(program.P)
+        g = dgl.graph(([e[0] for e in program.P.edges()],[e[1] for e in program.P.edges()]))
 
         g.ndata['x'] = torch.t(torch.stack([feat[a] for a in PlacementEnv.PLACETO_FEATURES])).float()
 

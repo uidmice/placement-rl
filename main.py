@@ -31,6 +31,10 @@ def get_args():
                         type=float,
                         default=0.01,
                         help='learning rate (default: 0.01)')
+    parser.add_argument('--seed',
+                        default=123445,
+                        type=int,
+                        help='random seed for experiments')
 ### Dataset global ###
     parser.add_argument("--device_net_path",
                         default = "./data/device_networks",
@@ -78,7 +82,7 @@ def get_args():
                         help="output dimension for the embedding (default 10)")
 
     parser.add_argument('--hidden_dim',
-                        default=64,
+                        default=16,
                         type=int,
                         help="hidden dimension for the network (default 64)")
 
@@ -142,7 +146,7 @@ def get_args():
     parser.add_argument(
         '--placeto_k',
         type=int,
-        default=3,
+        default=5,
         help='Number of layers for placeto (default: 3)'
     )
 

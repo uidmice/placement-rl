@@ -296,7 +296,8 @@ def run_episodes(env,
                 case_data['episodes'].append(ep_data)
                 new_episode = True
         case_data ['run_time'] = time.time() - start_time
-        print(f'{i}th case: {[case_data["network_id"], case_data["program_id"]]}, running time {case_data ["run_time"]}')
+        print(f'{i}th case: {[case_data["network_id"], case_data["program_id"]]}, {network.n_devices} devices, {program.n_operators} operators')
+        print(f'\t\t Running time {case_data ["run_time"]/case_data["num_of_samples"]: .2f} s/sample, best latency: {min(case_data["latency_trace"]):.2f}')
         records.append(case_data)
 
     if save_data:
@@ -312,7 +313,7 @@ def run_episodes(env,
 
 class Experiment_on_data:
     def __init__(self, exp_config):
-
+        self.seed = exp_config.seed
         self.exp_cfg = exp_config
 
         self.logdir = os.path.join(
@@ -329,7 +330,7 @@ class Experiment_on_data:
         if exp_config.use_placeto:
             self.agent = PlaceToAgent(len(PlacementEnv.PLACETO_FEATURES),
                                   self.exp_cfg.output_dim,
-                                  n_device = self.train_networks[0].n_devices,
+                                  n_device = self.exp_cfg.data_parameters['training']['networks'][0]['num_of_devices'][0],
                                   k=exp_config.placeto_k,
                                   hidden_dim=self.exp_cfg.hidden_dim,
                                   lr=self.exp_cfg.lr,
@@ -367,8 +368,8 @@ class Experiment_on_data:
         self.last_eval_latency = np.array([np.inf] * exp_config.num_of_eval_cases)
 
     def train(self):
+        np.random.seed(self.seed)
         self.init_train(self.exp_cfg)
-
 
         full_graph = not self.exp_cfg.use_op_selection
         record = []
@@ -392,7 +393,7 @@ class Experiment_on_data:
             train_init_map = np.random.choice(self.exp_cfg.data_parameters['training']['init_mapping'], self.exp_cfg.eval_frequency).tolist()
 
             print('===========================================================================')
-            print(f"{cnt}th: RUNNING training batch. Max {self.max_num_train_episodes // self.exp_cfg.eval_frequency} batches. ")
+            print(f"RUNNING {cnt}th training batch. Max {self.max_num_train_episodes // self.exp_cfg.eval_frequency} batches. ")
             torch.save(self.agent.policy.state_dict(), os.path.join(self.logdir, f'policy_{cnt * self.exp_cfg.eval_frequency }.pk'))
             torch.save(self.agent.embedding.state_dict(), os.path.join(self.logdir, f'embedding_{cnt * self.exp_cfg.eval_frequency}.pk'))
 
@@ -410,7 +411,7 @@ class Experiment_on_data:
             record.append(train_record)
             self.train_sequence.extend(zip(train_network_id, train_program_id, train_init_map))
             if self.exp_cfg.eval:
-                print(f"{cnt}th: Evaluating. ")
+                print(f"Evaluating. ")
                 test_record = run_episodes(self.test_env,
                                            self.agent,
                                            self.test_cases_program,
@@ -442,6 +443,8 @@ class Experiment_on_data:
     def test(self, dir, para, max_num_of_tests):
         if dir is None:
             dir = self.logdir
+            if not os.path.exists(dir):
+                raise ValueError
         if para is None:
             para = json.load(open(os.path.join(dir, 'run_data.txt'), 'r'))['data_para']
 
@@ -472,11 +475,11 @@ class Experiment_on_data:
         }
         json.dump(run_data, open(os.path.join(logdir, "run_data.txt"), "w"), indent=4)
 
-        for seed, program_id, network_id in zip(self.test_init_seeds, self.test_program_ids, self.test_network_ids):
+        for seed, program_id, network_id, i in zip(self.test_init_seeds, self.test_program_ids, self.test_network_ids, range(len(set))):
             self.agent.policy.load_state_dict(torch.load(os.path.join(dir, 'policy.pk')))
             self.agent.embedding.load_state_dict(torch.load(os.path.join(dir, 'embedding.pk')))
             print('===========================================================================')
-            print(f"RUNNING {self.exp_cfg.num_testing_cases_repeat} testing episodes for network {network_id}/program {program_id}.")
+            print(f"RUNNING {self.exp_cfg.num_testing_cases_repeat} testing episodes for network {network_id}/program {program_id} ({i+1}/{len(set)}).")
             run_episodes(self.test_env, self.agent,
                          [program_id] * self.exp_cfg.num_testing_cases_repeat,
                          [network_id] * self.exp_cfg.num_testing_cases_repeat,
