@@ -8,8 +8,9 @@ from placement_rl.memory_buffer import Buffer
 
 
 class PlacementEnv:
-    NODE_FEATURES = ['compute', 'comp_rate', 'criticality', 'start_time_potential']
-    EDGE_FEATURES = ['bytes', 'comm_delay', 'comm_rate', 'criticality']
+    NODE_FEATURES = ['compute', 'comp_rate', 'comp_time', 'criticality', 'start_time_potential']
+    EDGE_FEATURES = ['bytes', 'comm_delay', 'comm_time', 'comm_rate', 'criticality']
+    PLACETO_FEATURES = ['comp_time', 'output_size', 'cur_placement', 'is_cur', 'is_done']
 
     def __init__(self, networks: list, programs: list, memory_size=5):
 
@@ -130,9 +131,10 @@ class PlacementEnv:
 
         feat = {'compute': program.op_compute,
                 'comp_rate': network.comp_rate[mapping],
-                # 'comp_time': torch.tensor([torch.mean(G_stats.nodes[o]['comp_time']) for o in range(program.n_operators)]),
+                'comp_time': torch.tensor([np.mean(G_stats.nodes[o]['comp_time']) for o in range(program.n_operators)]),
                 'criticality': torch.tensor([program.P.nodes[o]['criticality'] for o in range(program.n_operators)])}
-
+        self.node_feature_mean['comp_time'] = torch.mean(feat['comp_time'])
+        self.node_feature_std['comp_time'] = torch.std(feat['comp_time'])
         def est(op):
             e = {}
             parents = program.op_parents[op]
@@ -170,6 +172,7 @@ class PlacementEnv:
 
         op_comp = torch.zeros(sum([len(node_dict[a]) for a in node_dict]))
         comp_rate = torch.zeros_like(op_comp)
+        comp_time = torch.zeros_like(op_comp)
         criticality = torch.zeros_like(op_comp)
         e = torch.zeros_like(op_comp)
 
@@ -178,14 +181,17 @@ class PlacementEnv:
             criticality[list(node_dict[op].values())] = program.P.nodes[op]['criticality']
             for d in node_dict[op]:
                 comp_rate[node_dict[op][d]] = network.comp_rate[d]
+                comp_time[node_dict[op][d]] = computation_latency(program, network, op, d)
                 e[node_dict[op][d]] = est(op, d)
 
         feat = {'compute': op_comp,
                 'comp_rate': comp_rate,
-                # 'comp_time': torch.tensor([torch.mean(G_stats.nodes[o]['comp_time']) for o in range(program.n_operators)]),
+                'comp_time': comp_time,
                 'criticality': criticality,
                 'start_time_potential': e}
 
+        self.node_feature_mean['comp_time'] = torch.mean(feat['comp_time'])
+        self.node_feature_std['comp_time'] = torch.std(feat['comp_time'])
         self.node_feature_mean['start_time_potential'] = torch.mean(feat['start_time_potential'])
         self.node_feature_std['start_time_potential'] = torch.std(feat['start_time_potential'])
 
@@ -211,6 +217,7 @@ class PlacementEnv:
         bytes = torch.zeros(n)
         comm_delay = torch.zeros(n)
         comm_rate = torch.zeros(n)
+        comm_time = torch.zeros(n)
         criticality = torch.zeros(n)
 
         for i, line in enumerate(nx.generate_edgelist(program.P, data=False)):
@@ -221,7 +228,14 @@ class PlacementEnv:
             comm_delay[i] = network.comm_delay[mapping[e1], mapping[e2]]
             comm_rate[i] = network.comm_rate[mapping[e1], mapping[e2]]
             criticality[i] = program.P.edges[e1, e2]['criticality']
-        feat = {'bytes': bytes, 'comm_delay': comm_delay, 'comm_rate': comm_rate, 'criticality': criticality}
+            comm_time[i] = np.mean(G_stats.edges[e1, e2]['comm_time'])
+        feat = {'bytes': bytes,
+                'comm_delay': comm_delay,
+                'comm_rate': comm_rate,
+                'comm_time': comm_time,
+                'criticality': criticality}
+        self.edge_feature_mean['comm_time'] = torch.mean(feat['comm_time'])
+        self.edge_feature_std['comm_time'] = torch.std(feat['comm_time'])
         for feature in self.edge_feature_mean:
             feat[feature] = (feat[feature] - self.edge_feature_mean[feature]) / self.edge_feature_std[feature]
         return u, v, feat
@@ -237,6 +251,7 @@ class PlacementEnv:
         bytes = []
         comm_delay = []
         comm_rate = []
+        comm_time = []
         criticality = []
 
         if bip_connection:
@@ -251,6 +266,7 @@ class PlacementEnv:
                     _, d2 = action_dict[d[1]]
                     comm_delay.append(network.comm_delay[d1, d2])
                     comm_rate.append(network.comm_rate[d1, d2])
+                    comm_time.append(communication_latency(program, network, n1, n2, d1, d2))
         else:
             for op in node_dict:
                 for dev in node_dict[op]:
@@ -261,6 +277,7 @@ class PlacementEnv:
                         bytes.append(program.get_data_bytes(op1, op2))
                         comm_delay.append(network.comm_delay[mapping[op1], dev])
                         comm_rate.append(network.comm_rate[mapping[op1], dev])
+                        comm_time.append(communication_latency(program, network,  op1, op2, mapping[op1], dev))
                         criticality.append(program.P.edges[op1, op2]['criticality'])
                     for op1, op2 in program.P.out_edges(op):
                         v.append(node_dict[op2][mapping[op2]])
@@ -268,6 +285,7 @@ class PlacementEnv:
                         bytes.append(program.get_data_bytes(op1, op2))
                         comm_delay.append(network.comm_delay[dev, mapping[op2]])
                         comm_rate.append(network.comm_rate[dev, mapping[op2]])
+                        comm_time.append(communication_latency(program, network, op1, op2, dev, mapping[op2]))
                         criticality.append(program.P.edges[op1, op2]['criticality'])
 
         u = torch.tensor(u)
@@ -277,7 +295,13 @@ class PlacementEnv:
         comm_rate = torch.tensor(comm_rate)
         criticality = torch.tensor(criticality)
 
-        feat = {'bytes': bytes, 'comm_delay': comm_delay, 'comm_rate': comm_rate, 'criticality': criticality}
+        feat = {'bytes': bytes,
+                'comm_delay': comm_delay,
+                'comm_rate': comm_rate,
+                'comm_time': comm_time,
+                'criticality': criticality}
+        self.edge_feature_mean['comm_time'] = torch.mean(feat['comm_time'])
+        self.edge_feature_std['comm_time'] = torch.std(feat['comm_time'])
         for feature in self.edge_feature_mean:
             feat[feature] = (feat[feature] - self.edge_feature_mean[feature]) / self.edge_feature_std[feature]
         return u, v, feat
@@ -328,6 +352,29 @@ class PlacementEnv:
         g = dgl.graph((u, v))
         g.edata['x'] = torch.t(torch.stack([edge_features[feat] for feat in PlacementEnv.EDGE_FEATURES])).float()
         g.ndata['x'] = torch.t(torch.stack([node_features[feat] for feat in PlacementEnv.NODE_FEATURES])).float()
+        return g
+
+    def get_placeto_graph(self, program_id, network_id, mapping, G_stats, cur_op, done_nodes):
+        program = self.programs[program_id]
+        network = self.networks[network_id]
+
+
+        feat = {'comp_time': torch.tensor(
+                    [np.mean(G_stats.nodes[o]['comp_time']) for o in range(program.n_operators)]),
+                'output_size': torch.tensor(
+                    [max([program.P.edges[e]['bytes'] for e in program.P.out_edges(o)]) for o in range(program.n_operators)]),
+                'cur_placement': 2 * torch.tensor(mapping)/network.n_devices - 1}
+        feat['comp_time'] = (feat['comp_time'] - torch.mean(feat['comp_time']))/(torch.std(feat['comp_time']) + 0.001)
+        feat['is_cur'] = torch.zeros(program.n_operators)
+        feat['is_cur'][cur_op] = 1
+        feat['is_done'] = torch.zeros(program.n_operators)
+        if len(done_nodes):
+            feat['is_done'][done_nodes] = 1
+
+        g = dgl.from_networkx(program.P)
+
+        g.ndata['x'] = torch.t(torch.stack([feat[a] for a in PlacementEnv.PLACETO_FEATURES])).float()
+
         return g
 
     def evaluate(self, program_id, network_id, mapping, noise=0, repeat=1):

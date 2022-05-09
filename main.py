@@ -1,13 +1,16 @@
-from experiment import Experiment_on_data, Experiment_placeto
+from experiment import Experiment_on_data
 
 import argparse, os, json
 
 def validate_file(f):
     if not os.path.exists(f):
-        # Argparse uses the ArgumentTypeError to give a rejection message like:
-        # error: argument input: x does not exist
         raise argparse.ArgumentTypeError("{0} does not exist".format(f))
     return json.load(open(f, 'rb'))
+
+def validate_dir(f):
+    if not os.path.isdir(f):
+        raise argparse.ArgumentTypeError("{0} does not exist".format(f))
+    return f
 
 def get_args():
     parser = argparse.ArgumentParser(description='Placement Experiment Arguments')
@@ -42,6 +45,27 @@ def get_args():
                         default='parameters.txt',
                         help="json text file specifying the training/testing dataset parameters", metavar="FILE")
 
+    parser.add_argument('--disable_train',
+                        action='store_false',
+                        dest='train',
+                        help='disable training')
+
+    parser.add_argument('--disable_test',
+                        action='store_false',
+                        dest='test',
+                        help='disable testing at the end of training')
+
+    parser.add_argument('--test_model_dir',
+                        type=validate_dir,
+                        dest='test_dir',
+                        help='disable testing at the end of training')
+
+    parser.add_argument("--test_parameters",
+                        type=validate_file,
+                        dest='test_para',
+                        help="json text file specifying the testing dataset parameters", metavar="FILE")
+
+
 ### policy learning ###
     parser.add_argument('--gamma',
                         default=0.97,
@@ -58,20 +82,10 @@ def get_args():
                         type=int,
                         help="hidden dimension for the network (default 64)")
 
-    parser.add_argument('--disable_random_training_pair',
-                        action='store_false',
-                        dest='random_training_pair',
-                        help='disable random selection of training pairs (network, program, init_mapping). Each combination of network/prorgam/mapping will occur for a fixed number of times during training')
-
     parser.add_argument('--disable_dataset_loading',
                         action='store_false',
                         dest='load_data',
                         help='disable dataset loading (training/testing data will be generated)')
-
-    parser.add_argument('--num_episodes_per_setting',
-                        type=int,
-                        default=0,
-                        help='number of training episodes for each program-network-initial mapping')
 
     parser.add_argument('--samples_to_ops_ratio',
                         default=2,
@@ -89,16 +103,29 @@ def get_args():
                         help='capacity of the memory buffer for storing placement  (default: 10)')
 
 
-
     parser.add_argument('--eval',
                         action='store_true',
-                        help='Evaluates a policy on test dataset every 20 episode')
+                        help='Evaluates a policy on test dataset every eval_frequency episodes')
 
 
-    parser.add_argument('--num_testing_episodes',
+    parser.add_argument('--num_of_eval_cases',
+                        default=20,
+                        type=int,
+                        help='number of test cases for evaluation (default: 20)')
+
+    parser.add_argument('--eval_frequency',
+                        default=5,
+                        help='The number of training episodes between two evaluations (default: 5)')
+
+    parser.add_argument('--num_testing_cases',
+                        default=200,
+                        type=int,
+                        help='max number of testing cases (default: 200)')
+
+    parser.add_argument('--num_testing_cases_repeat',
                         default=2,
                         type=int,
-                        help='number of testing episodes (default: 2)')
+                        help='number of times repeating each testing case (default: 2)')
 
     parser.add_argument(
         '--num_tuning_episodes',
@@ -113,6 +140,13 @@ def get_args():
         help='Use placeto')
 
     parser.add_argument(
+        '--placeto_k',
+        type=int,
+        default=3,
+        help='Number of layers for placeto (default: 3)'
+    )
+
+    parser.add_argument(
         '--use_rl_op_est_device',
         dest='use_op_selection',
         action='store_true',
@@ -125,9 +159,9 @@ if __name__ == '__main__':
     exp_cfg = get_args()
     print(exp_cfg)
 
-    if exp_cfg.use_placeto:
-        experiment = Experiment_placeto(exp_cfg)
-    else:
-        experiment = Experiment_on_data(exp_cfg)
-    experiment.train()
-    experiment.test()
+    experiment = Experiment_on_data(exp_cfg)
+
+    if exp_cfg.train:
+        experiment.train()
+    if exp_cfg.test:
+        experiment.test(exp_cfg.test_dir, exp_cfg.test_para, exp_cfg.num_testing_cases)

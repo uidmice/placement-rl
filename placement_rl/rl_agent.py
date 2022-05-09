@@ -10,32 +10,6 @@ def weights_init_(m):
         torch.nn.init.xavier_uniform_(m.weight, gain=1)
         torch.nn.init.constant_(m.bias, 0)
 
-class SoftmaxActor(nn.Module):
-    def __init__(self,
-                 input_dim,
-                 hidden_dim=32,
-                 ):
-        super(SoftmaxActor, self).__init__()
-
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-
-        self.linear1 = nn.Linear(input_dim, hidden_dim)
-        self.linear2 = nn.Linear(hidden_dim, hidden_dim)
-        self.linear3 = nn.Linear(hidden_dim, 1)
-
-        self.apply(weights_init_)
-
-    def forward(self, x, mask=None):
-        x = F.relu(self.linear1(x))
-        # x = F.relu(self.linear2(x))
-        x = self.linear3(x)
-
-        if mask is None:
-            mask = [1 for i in range(x.shape[0])]
-        x_masked = x.clone()
-        x_masked[mask == 0] = -float('inf')
-        return F.softmax(torch.squeeze(x_masked), dim=-1)
 
 
 class Critic(nn.Module):
