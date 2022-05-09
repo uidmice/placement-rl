@@ -1,6 +1,8 @@
-matplotlib=3.5.1=pypi_0
-networkx=2.5.1=pyhd3eb1b0_0
-numpy=1.19.2=py38h456fd55_0
-python=3.8.10=h88f2d9e_7
-simpy=4.0.1=pypi_0
-torch=1.10.1=pypi_0
+matplotlib=3.5.1
+networkx=2.5
+numpy=1.19
+python=3.8.10
+simpy=4.0.1
+pytorch
+requests
+tqdm
