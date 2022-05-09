@@ -147,7 +147,7 @@ def get_args():
         '--placeto_k',
         type=int,
         default=5,
-        help='Number of layers for placeto (default: 3)'
+        help='Number of layers for placeto (default: 5)'
     )
 
     parser.add_argument(
