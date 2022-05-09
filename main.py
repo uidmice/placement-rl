@@ -60,10 +60,19 @@ def get_args():
                         dest='test',
                         help='disable testing at the end of training')
 
-    parser.add_argument('--test_model_dir',
+    parser.add_argument('--run_folder',
                         type=validate_dir,
-                        dest='test_dir',
-                        help='disable testing at the end of training')
+                        dest='load_dir',
+                        help='directory to load existing run data')
+
+    parser.add_argument('--embedding_model',
+                        default='embedding.pk',
+                        type=str,
+                        help='file name of the embedding parameters')
+
+    parser.add_argument('--policy_model',
+                        default='policy.pk',
+                        help='file name of the policy parameters')
 
     parser.add_argument("--test_parameters",
                         type=validate_file,
@@ -97,10 +106,15 @@ def get_args():
                         type=int,
                         help='the ratio of the number of iterations per episode to the number of operators during training (default: 1.5)')
 
-    parser.add_argument('--num_training_episodes',
+    parser.add_argument('--max_num_training_episodes',
                         default=200,
                         type=int,
-                        help='total number of training episodes if episode_per_program is not specified (default: 200)')
+                        help='max number of training episodes (default: 200)')
+
+    parser.add_argument('--min_num_training_episodes',
+                        default=50,
+                        type=int,
+                        help='min number of training episodes (default: 50)')
 
     parser.add_argument('--memory_capacity',
                         default=4,
@@ -163,11 +177,10 @@ def get_args():
 if __name__ == '__main__':
     # Get user arguments and construct config
     exp_cfg = get_args()
-    print(exp_cfg)
 
     experiment = Experiment_on_data(exp_cfg)
 
     if exp_cfg.train:
         experiment.train()
     if exp_cfg.test:
-        experiment.test(exp_cfg.test_dir, exp_cfg.test_para, exp_cfg.num_testing_cases)
+        experiment.test(exp_cfg.test_para, exp_cfg.num_testing_cases)

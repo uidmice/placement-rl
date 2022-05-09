@@ -312,22 +312,37 @@ class Experiment_on_data:
         self.seed = exp_config.seed
         self.exp_cfg = exp_config
 
-        self.logdir = os.path.join(
-            self.exp_cfg.logdir, '{}_{}'.format(
-                datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
-                self.exp_cfg.logdir_suffix))
-        if not os.path.exists(self.logdir):
-            os.makedirs(self.logdir)
+        if exp_config.load_dir is not None:
+            self.exp_cfg = pickle.load(open(os.path.join(exp_config.load_dir, 'args.pkl'),'rb'))
+            self.logdir = exp_config.load_dir
+            self.train_networks, self.train_programs = pickle.load(open(os.path.join(self.logdir, "train_data.pkl"), "rb"))
+            self.test_networks, self.test_programs = pickle.load(open(os.path.join(self.logdir, "eval_data.pkl"), "rb"))
+
+            run_data = json.load(open(os.path.join(self.logdir, "run_data.txt"), "r"))
+            self.train_sequence = run_data['train_sequence']
+            self.test_cases_network = [l[0] for l in run_data['eval_sequence']]
+            self.test_cases_program = [l[1] for l in run_data['eval_sequence']]
+            self.test_cases_init_mapping = [l[2] for l in run_data['eval_sequence']]
+
+        else:
+            self.logdir = os.path.join(
+                self.exp_cfg.logdir, '{}_{}'.format(
+                    datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
+                    self.exp_cfg.logdir_suffix))
+            if not os.path.exists(self.logdir):
+                os.makedirs(self.logdir)
+            pickle.dump(self.exp_cfg,
+                        open(os.path.join(self.logdir, "args.pkl"), "wb"))
+
+            self.init()
 
         print("LOGDIR: ", self.logdir)
-        pickle.dump(self.exp_cfg,
-                    open(os.path.join(self.logdir, "args.pkl"), "wb"))
 
-        if exp_config.use_placeto:
+        if self.exp_cfg.use_placeto:
             self.agent = PlaceToAgent(len(PlacementEnv.PLACETO_FEATURES),
                                   self.exp_cfg.output_dim,
                                   n_device = self.exp_cfg.data_parameters['training']['networks'][0]['num_of_devices'][0],
-                                  k=exp_config.placeto_k,
+                                  k=self.exp_cfg.placeto_k,
                                   hidden_dim=self.exp_cfg.hidden_dim,
                                   lr=self.exp_cfg.lr,
                                   gamma=self.exp_cfg.gamma)
@@ -336,8 +351,21 @@ class Experiment_on_data:
                                    self.exp_cfg.output_dim,
                                    hidden_dim=self.exp_cfg.hidden_dim, lr=self.exp_cfg.lr, gamma=self.exp_cfg.gamma)
 
+        if exp_config.load_dir:
+            self.agent.policy.load_state_dict(torch.load(os.path.join(self.logdir, exp_config.policy_model)))
+            self.agent.embedding.load_state_dict(torch.load(os.path.join(self.logdir, exp_config.embedding_model)))
 
-    def init_train(self, exp_config):
+        self.train_env = PlacementEnv(self.train_networks, self.train_programs, self.exp_cfg.memory_capacity)
+        self.test_env = PlacementEnv(self.test_networks, self.test_programs, self.exp_cfg.memory_capacity)
+
+        self.max_num_train_episodes = exp_config.max_num_training_episodes
+        self.min_num_train_episodes = exp_config.min_num_training_episodes
+
+        self.last_eval_latency = np.array([np.inf] * self.exp_cfg.num_of_eval_cases)
+
+
+
+    def init(self):
         if self.exp_cfg.load_data:
             network_path = self.exp_cfg.device_net_path
             op_path = self.exp_cfg.op_net_path
@@ -352,25 +380,20 @@ class Experiment_on_data:
         pickle.dump([train_networks, train_programs], open(os.path.join(self.logdir, "train_data.pkl"), "wb"))
         pickle.dump([test_networks, test_programs], open(os.path.join(self.logdir, "eval_data.pkl"), "wb"))
 
-        self.train_env = PlacementEnv(self.train_networks, self.train_programs, self.exp_cfg.memory_capacity)
-        self.test_env = PlacementEnv(self.test_networks, self.test_programs, self.exp_cfg.memory_capacity)
-
-        self.max_num_train_episodes = self.exp_cfg.num_training_episodes
-
         self.train_sequence = []
         self.test_cases_network = np.random.choice(len(self.test_networks), self.exp_cfg.num_of_eval_cases).tolist()
-        self.test_cases_program = np.random.choice(len(self.test_programs), exp_config.num_of_eval_cases).tolist()
-        self.test_cases_init_mapping = np.random.choice(len(self.test_networks), exp_config.num_of_eval_cases).tolist()
-        self.last_eval_latency = np.array([np.inf] * exp_config.num_of_eval_cases)
+        self.test_cases_program = np.random.choice(len(self.test_programs), self.exp_cfg.num_of_eval_cases).tolist()
+        self.test_cases_init_mapping = np.random.choice(len(self.test_networks), self.exp_cfg.num_of_eval_cases).tolist()
 
     def train(self):
         np.random.seed(self.seed)
-        self.init_train(self.exp_cfg)
 
         full_graph = not self.exp_cfg.use_op_selection
         record = []
         eval_records = []
         cnt = 0
+
+        count_down = 5
 
         while len(self.train_sequence) < self.max_num_train_episodes:
             train_network_id = np.random.choice(len(self.train_networks), self.exp_cfg.eval_frequency).tolist()
@@ -379,8 +402,8 @@ class Experiment_on_data:
 
             print('===========================================================================')
             print(f"RUNNING {cnt}th training batch. Max {self.max_num_train_episodes // self.exp_cfg.eval_frequency} batches. ")
-            torch.save(self.agent.policy.state_dict(), os.path.join(self.logdir, f'policy_{cnt * self.exp_cfg.eval_frequency }.pk'))
-            torch.save(self.agent.embedding.state_dict(), os.path.join(self.logdir, f'embedding_{cnt * self.exp_cfg.eval_frequency}.pk'))
+            torch.save(self.agent.policy.state_dict(), os.path.join(self.logdir, f'policy_{len(self.train_sequence) }.pk'))
+            torch.save(self.agent.embedding.state_dict(), os.path.join(self.logdir, f'embedding_{len(self.train_sequence)}.pk'))
 
             train_record = run_episodes(self.train_env,
                                         self.agent,
@@ -395,6 +418,7 @@ class Experiment_on_data:
                                         noise=self.exp_cfg.noise)
             record.append(train_record)
             self.train_sequence.extend(zip(train_network_id, train_program_id, train_init_map))
+            cnt += 1
             if self.exp_cfg.eval:
                 print(f"Evaluating. ")
                 test_record = run_episodes(self.test_env,
@@ -410,12 +434,20 @@ class Experiment_on_data:
                                            noise=self.exp_cfg.noise)
                 eval_records.append(test_record)
                 eval_output = np.array([min(episode['latency_trace']) for episode in test_record])
-                print(f'{np.sum(eval_output < self.last_eval_latency)} test cases out of {len(eval_output)} are improved.')
-                if np.sum(eval_output < self.last_eval_latency) < len(eval_output)//2:
-                    print("Performance stop being improved. End training.")
-                    break
+                num_improved = np.sum(eval_output < self.last_eval_latency)
+                print(f'{num_improved} test cases out of {len(eval_output)} are improved.')
                 self.last_eval_latency = eval_output
-            cnt += 1
+                if len(self.train_sequence) <= self.min_num_train_episodes:
+                    continue
+
+                if num_improved < len(eval_output)//2:
+                    count_down -= 1
+
+                    if count_down == 0:
+                        print("Performance stop being improved. End training.")
+                        break
+
+
         run_data = {
             'num_of_train_networks': len(self.train_networks),
             'num_of_train_programs': len(self.train_programs),
@@ -427,26 +459,28 @@ class Experiment_on_data:
         }
         json.dump(run_data, open(os.path.join(self.logdir, "run_data.txt"), "w"), indent=4)
 
-        pickle.dump(record, open(os.path.join(self.logdir, "train.pk"), "wb"))
+        torch.save(self.agent.policy.state_dict(),
+                   os.path.join(self.logdir, f'policy_{len(self.train_sequence)}.pk'))
+        torch.save(self.agent.embedding.state_dict(),
+                   os.path.join(self.logdir, f'embedding_{len(self.train_sequence)}.pk'))
+
+        pickle.dump(record, open(os.path.join(self.logdir, "train.pk"), "ab"))
         torch.save(self.agent.policy.state_dict(), os.path.join(self.logdir, f'policy.pk'))
         torch.save(self.agent.embedding.state_dict(), os.path.join(self.logdir, f'embedding.pk'))
         if self.exp_cfg.eval:
-            pickle.dump(eval_records, open(os.path.join(self.logdir, "eval.pk"), "wb"))
+            pickle.dump(eval_records, open(os.path.join(self.logdir, "eval.pk"), "ab"))
 
         return record
 
-    def test(self, dir, para, max_num_of_tests):
-        if dir is None:
-            dir = self.logdir
-            if not os.path.exists(dir):
-                raise ValueError
+    def test(self, para, max_num_of_tests):
+
         if para is None:
-            para = json.load(open(os.path.join(dir, 'run_data.txt'), 'r'))['data_para']
+            para = json.load(open(os.path.join(self.logdir, 'run_data.txt'), 'r'))['data_para']
 
         test_networks = networks_from_para(para['testing']['networks'], para['num_of_types'])
         test_programs = programs_from_para(para['testing']['programs'], para['num_of_types'])
 
-        logdir = os.path.join(dir, 'test_{}'.format(datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")))
+        logdir = os.path.join(self.logdir, 'test_{}'.format(datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")))
         if not os.path.exists(logdir):
             os.makedirs(logdir)
 
@@ -470,9 +504,12 @@ class Experiment_on_data:
         }
         json.dump(run_data, open(os.path.join(logdir, "run_data.txt"), "w"), indent=4)
 
+        torch.save(self.agent.policy.state_dict(), os.path.join(logdir, f'policy.pk'))
+        torch.save(self.agent.embedding.state_dict(), os.path.join(logdir, f'embedding.pk'))
+
         for seed, program_id, network_id, i in zip(self.test_init_seeds, self.test_program_ids, self.test_network_ids, range(len(set))):
-            self.agent.policy.load_state_dict(torch.load(os.path.join(dir, 'policy.pk')))
-            self.agent.embedding.load_state_dict(torch.load(os.path.join(dir, 'embedding.pk')))
+            self.agent.policy.load_state_dict(torch.load(os.path.join(logdir, 'policy.pk')))
+            self.agent.embedding.load_state_dict(torch.load(os.path.join(logdir, 'embedding.pk')))
             print('===========================================================================')
             print(f"RUNNING {self.exp_cfg.num_testing_cases_repeat} testing episodes for network {network_id}/program {program_id} ({i+1}/{len(set)}).")
             run_episodes(self.test_env, self.agent,
