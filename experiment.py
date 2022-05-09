@@ -372,17 +372,6 @@ class Experiment_on_data:
         eval_records = []
         cnt = 0
 
-        run_data = {
-            'num_of_train_networks': len(self.train_networks),
-            'num_of_train_programs': len(self.train_programs),
-            'num_of_train_episodes': len(self.train_sequence),
-            'train_sequence': self.train_sequence,
-            'num_of_eval_cases': self.exp_cfg.num_of_eval_cases,
-            'eval_sequence': list(zip(self.test_cases_network, self.test_cases_program, self.test_cases_init_mapping)),
-            'data_para': self.exp_cfg.data_parameters
-        }
-        json.dump(run_data, open(os.path.join(self.logdir, "run_data.txt"), "w"), indent=4)
-
         while len(self.train_sequence) < self.max_num_train_episodes:
             train_network_id = np.random.choice(len(self.train_networks), self.exp_cfg.eval_frequency).tolist()
             train_program_id = np.random.choice(len(self.train_programs), self.exp_cfg.eval_frequency).tolist()
@@ -427,6 +416,16 @@ class Experiment_on_data:
                     break
                 self.last_eval_latency = eval_output
             cnt += 1
+        run_data = {
+            'num_of_train_networks': len(self.train_networks),
+            'num_of_train_programs': len(self.train_programs),
+            'num_of_train_episodes': len(self.train_sequence),
+            'train_sequence': self.train_sequence,
+            'num_of_eval_cases': self.exp_cfg.num_of_eval_cases,
+            'eval_sequence': list(zip(self.test_cases_network, self.test_cases_program, self.test_cases_init_mapping)),
+            'data_para': self.exp_cfg.data_parameters
+        }
+        json.dump(run_data, open(os.path.join(self.logdir, "run_data.txt"), "w"), indent=4)
 
         pickle.dump(record, open(os.path.join(self.logdir, "train.pk"), "wb"))
         torch.save(self.agent.policy.state_dict(), os.path.join(self.logdir, f'policy.pk'))
