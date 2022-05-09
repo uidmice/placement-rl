@@ -20,9 +20,10 @@ def get_args():
     parser.add_argument('--logdir_suffix',
                         default='',
                         help='log directory suffix')
-    parser.add_argument('--cuda',
-                        action='store_true',
-                        help='run on CUDA (default: False)')
+    parser.add_argument('--disable_cuda',
+                        action='store_false',
+                        dest='cuda',
+                        help='disable running on CUDA')
     parser.add_argument('--noise',
                         default=0,
                         type=float,
@@ -46,7 +47,7 @@ def get_args():
 
     parser.add_argument("-p", "--data_parameters",
                         type=validate_file,
-                        default='parameters.txt',
+                        default='parameters/single_network.txt',
                         help="json text file specifying the training/testing dataset parameters", metavar="FILE")
 
     parser.add_argument('--disable_train',
@@ -86,10 +87,10 @@ def get_args():
                         type=int,
                         help="hidden dimension for the network (default 64)")
 
-    parser.add_argument('--disable_dataset_loading',
-                        action='store_false',
+    parser.add_argument('--enable_dataset_loading',
+                        action='store_true',
                         dest='load_data',
-                        help='disable dataset loading (training/testing data will be generated)')
+                        help='enable dataset loading (training/testing data will not be generated)')
 
     parser.add_argument('--samples_to_ops_ratio',
                         default=2,
@@ -107,9 +108,10 @@ def get_args():
                         help='capacity of the memory buffer for storing placement  (default: 10)')
 
 
-    parser.add_argument('--eval',
-                        action='store_true',
-                        help='Evaluates a policy on test dataset every eval_frequency episodes')
+    parser.add_argument('--disable_eval',
+                        action='store_false',
+                        dest='eval',
+                        help='Disable evaluating a policy on test dataset every eval_frequency episodes')
 
 
     parser.add_argument('--num_of_eval_cases',

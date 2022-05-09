@@ -8,7 +8,6 @@ import itertools, json
 import pdb
 
 
-from baseline import exhaustive, random_placement, heft, random_op_greedy_dev, random_op_est_dev
 from env.network import StarNetwork, FullNetwork
 from env.program import Program
 from env.latency import evaluate
@@ -22,7 +21,6 @@ import os
 import pickle
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 
 def load_data_from_dir(network_path, program_path, exp_cfg):
     network_para_train = exp_cfg.data_parameters['training']['networks']
@@ -253,7 +251,7 @@ def run_episodes(env,
 
             if use_placeto:
                 s = placeto_order[t]
-                g = env.get_placeto_graph(program_id, network_id, cur_mapping, G_stats, s, placeto_order[:t])
+                g = env.get_placeto_graph(program_id, network_id, cur_mapping, G_stats, s, placeto_order[:t]).to(device)
                 mask[:] = 1
                 mask[constraints[s]] = 0
                 action = agent.dev_selection(g, program, s, mask)
@@ -307,8 +305,6 @@ def run_episodes(env,
             os.makedirs(save_dir)
         pickle.dump(records, open(logname, 'wb'))
     return records
-
-
 
 
 class Experiment_on_data:

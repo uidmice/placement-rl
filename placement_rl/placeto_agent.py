@@ -26,7 +26,7 @@ class Device_SoftmaxActor(nn.Module):
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.n_device = n_device
-        self.nn = FNN(input_dim, [hidden_dim], n_device)
+        self.nn = FNN(input_dim, [hidden_dim], n_device).to(device)
 
 
     def forward(self, x, mask=None):
@@ -48,8 +48,8 @@ class Aggregator(nn.Module):
 
         self.reverse = reverse
 
-        self.pre_layers = FNN(node_dim, [node_dim], emb_dim)
-        self.update_layers = FNN(emb_dim, [emb_dim], out_dim)
+        self.pre_layers = FNN(node_dim, [node_dim], emb_dim).to(device)
+        self.update_layers = FNN(emb_dim, [emb_dim], out_dim).to(device)
 
 
     def msg_func(self, edges):
@@ -76,10 +76,10 @@ class MP(nn.Module):
         self.emb_dim = emb_dim
         self.k = k
 
-        self.fpa = Aggregator(emb_dim, emb_dim, emb_dim, False)
-        self.bpa = Aggregator(emb_dim, emb_dim, emb_dim, True)
+        self.fpa = Aggregator(emb_dim, emb_dim, emb_dim, False).to(device)
+        self.bpa = Aggregator(emb_dim, emb_dim, emb_dim, True).to(device)
 
-        self.node_transform = FNN(emb_dim, [emb_dim], emb_dim)
+        self.node_transform = FNN(emb_dim, [emb_dim], emb_dim).to(device)
 
     def forward(self, g):
         self_trans = self.node_transform(g.ndata['x'])
@@ -99,10 +99,10 @@ class MP(nn.Module):
 class PlaceToEmbedding(nn.Module):
     def __init__(self, emb_size, k):
         super(PlaceToEmbedding, self).__init__()
-        self.mp = MP(emb_size, k)
-        self.agg_p = Aggregator(emb_size * 2, emb_size * 2, emb_size * 2, False)
-        self.agg_c = Aggregator(emb_size * 2, emb_size * 2, emb_size * 2, True)
-        self.agg_r = Aggregator(emb_size * 2, emb_size * 2, emb_size * 2, False)
+        self.mp = MP(emb_size, k).to(device)
+        self.agg_p = Aggregator(emb_size * 2, emb_size * 2, emb_size * 2, False).to(device)
+        self.agg_c = Aggregator(emb_size * 2, emb_size * 2, emb_size * 2, True).to(device)
+        self.agg_r = Aggregator(emb_size * 2, emb_size * 2, emb_size * 2, False).to(device)
 
     def forward(self, g):
         return self.mp(g)
@@ -128,7 +128,7 @@ class PlaceToAgent:
         self.gamma = gamma
 
         self.policy = Device_SoftmaxActor(node_dim * 8, n_device, hidden_dim).to(device)
-        self.embedding = PlaceToEmbedding(node_dim, k)
+        self.embedding = PlaceToEmbedding(node_dim, k).to(device)
         self.optim = torch.optim.Adam(list(self.embedding.parameters()) +
                                       list(self.policy.parameters()), lr=lr)
 
@@ -145,13 +145,13 @@ class PlaceToAgent:
         g.ndata['y'] = emb
 
         if len(program.op_parents[op]):
-            p_g = dgl.node_subgraph(g, [op] + program.op_parents[op])
+            p_g = dgl.node_subgraph(g, [op] + program.op_parents[op]).to(device)
             pred_embeddings = self.embedding.agg_p(p_g)[0, :]
         else:
             pred_embeddings = torch.zeros(self.node_dim * 2)
 
         if len(program.op_children[op]):
-            c_g = dgl.node_subgraph(g, [op] + program.op_children[op])
+            c_g = dgl.node_subgraph(g, [op] + program.op_children[op]).to(device)
             desc_embeddings = self.embedding.agg_c(c_g)[0, :]
         else:
             desc_embeddings = torch.zeros(self.node_dim * 2)
@@ -159,7 +159,7 @@ class PlaceToAgent:
         # Parallels
         r = program.op_parallel[op]
         if len(r):
-            r_g = dgl.graph(([0] * len(r), range(1, len(r)+1)))
+            r_g = dgl.graph(([0] * len(r), range(1, len(r)+1))).to(device)
             idx = [op]+r
             r_g.ndata['y'] = emb[idx, :]
             parallel_embeddings = self.embedding.agg_r(r_g)[0, :]
@@ -167,7 +167,7 @@ class PlaceToAgent:
             parallel_embeddings = torch.zeros(self.node_dim * 2)
 
         node_embedding = emb[op, :]
-        embedding = torch.cat((pred_embeddings, desc_embeddings, parallel_embeddings, node_embedding), dim = -1)
+        embedding = torch.cat((pred_embeddings, desc_embeddings, parallel_embeddings, node_embedding), dim = -1).to(device)
 
 
         probs = self.policy(embedding, mask)
