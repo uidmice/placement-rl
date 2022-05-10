@@ -316,13 +316,13 @@ class Experiment_on_data:
             self.exp_cfg = pickle.load(open(os.path.join(exp_config.load_dir, 'args.pkl'),'rb'))
             self.logdir = exp_config.load_dir
             self.train_networks, self.train_programs = pickle.load(open(os.path.join(self.logdir, "train_data.pkl"), "rb"))
-            self.test_networks, self.test_programs = pickle.load(open(os.path.join(self.logdir, "eval_data.pkl"), "rb"))
+            self.eval_networks, self.eval_programs = pickle.load(open(os.path.join(self.logdir, "eval_data.pkl"), "rb"))
 
             run_data = json.load(open(os.path.join(self.logdir, "run_data.txt"), "r"))
             self.train_sequence = run_data['train_sequence']
-            self.test_cases_network = [l[0] for l in run_data['eval_sequence']]
-            self.test_cases_program = [l[1] for l in run_data['eval_sequence']]
-            self.test_cases_init_mapping = [l[2] for l in run_data['eval_sequence']]
+            self.eval_cases_network = [l[0] for l in run_data['eval_sequence']]
+            self.eval_cases_program = [l[1] for l in run_data['eval_sequence']]
+            self.eval_cases_init_mapping = [l[2] for l in run_data['eval_sequence']]
 
         else:
             self.logdir = os.path.join(
@@ -356,7 +356,7 @@ class Experiment_on_data:
             self.agent.embedding.load_state_dict(torch.load(os.path.join(self.logdir, exp_config.embedding_model)))
 
         self.train_env = PlacementEnv(self.train_networks, self.train_programs, self.exp_cfg.memory_capacity)
-        self.test_env = PlacementEnv(self.test_networks, self.test_programs, self.exp_cfg.memory_capacity)
+        self.eval_env = PlacementEnv(self.eval_networks, self.eval_programs, self.exp_cfg.memory_capacity)
 
         self.max_num_train_episodes = exp_config.max_num_training_episodes
         self.min_num_train_episodes = exp_config.min_num_training_episodes
@@ -366,28 +366,29 @@ class Experiment_on_data:
 
 
     def init(self):
+        random.seed(self.seed)
+
         if self.exp_cfg.load_data:
             network_path = self.exp_cfg.device_net_path
             op_path = self.exp_cfg.op_net_path
-            train_networks, train_programs, test_networks, test_programs, para_set = load_data_from_dir(network_path, op_path, self.exp_cfg)
+            train_networks, train_programs, eval_networks, eval_programs, para_set = load_data_from_dir(network_path, op_path, self.exp_cfg)
         else:
-            train_networks, train_programs, test_networks, test_programs = generate_data(self.exp_cfg.data_parameters)
+            train_networks, train_programs, eval_networks, eval_programs = generate_data(self.exp_cfg.data_parameters)
 
         self.train_networks = train_networks
         self.train_programs = train_programs
-        self.test_networks = test_networks
-        self.test_programs = test_programs
+        self.eval_networks = eval_networks
+        self.eval_programs = eval_programs
         pickle.dump([train_networks, train_programs], open(os.path.join(self.logdir, "train_data.pkl"), "wb"))
-        pickle.dump([test_networks, test_programs], open(os.path.join(self.logdir, "eval_data.pkl"), "wb"))
+        pickle.dump([eval_networks, eval_programs], open(os.path.join(self.logdir, "eval_data.pkl"), "wb"))
 
         self.train_sequence = []
-        self.test_cases_network = np.random.choice(len(self.test_networks), self.exp_cfg.num_of_eval_cases).tolist()
-        self.test_cases_program = np.random.choice(len(self.test_programs), self.exp_cfg.num_of_eval_cases).tolist()
-        self.test_cases_init_mapping = np.random.choice(len(self.test_networks), self.exp_cfg.num_of_eval_cases).tolist()
+        eval_cases = random.sample(list(itertools.product(range(len(eval_networks)), range(len(eval_programs)))), self.exp_cfg.num_of_eval_cases)
+        self.eval_cases_network = [a[0] for a in eval_cases]
+        self.eval_cases_program = [a[1] for a in eval_cases]
+        self.eval_cases_init_mapping = np.random.choice(self.exp_cfg.data_parameters['testing']['init_mapping'], self.exp_cfg.num_of_eval_cases).tolist()
 
     def train(self):
-        np.random.seed(self.seed)
-
         full_graph = not self.exp_cfg.use_op_selection
         record = []
         eval_records = []
@@ -421,11 +422,11 @@ class Experiment_on_data:
             cnt += 1
             if self.exp_cfg.eval:
                 print(f"Evaluating. ")
-                test_record = run_episodes(self.test_env,
+                test_record = run_episodes(self.eval_env,
                                            self.agent,
-                                           self.test_cases_program,
-                                           self.test_cases_network,
-                                           self.test_cases_init_mapping,
+                                           self.eval_cases_program,
+                                           self.eval_cases_network,
+                                           self.eval_cases_init_mapping,
                                            use_placeto=self.exp_cfg.use_placeto,
                                            use_full_graph=full_graph,
                                            samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
@@ -454,7 +455,7 @@ class Experiment_on_data:
             'num_of_train_episodes': len(self.train_sequence),
             'train_sequence': self.train_sequence,
             'num_of_eval_cases': self.exp_cfg.num_of_eval_cases,
-            'eval_sequence': list(zip(self.test_cases_network, self.test_cases_program, self.test_cases_init_mapping)),
+            'eval_sequence': list(zip(self.eval_cases_network, self.eval_cases_program, self.eval_cases_init_mapping)),
             'data_para': self.exp_cfg.data_parameters
         }
         json.dump(run_data, open(os.path.join(self.logdir, "run_data.txt"), "w"), indent=4)
@@ -487,7 +488,7 @@ class Experiment_on_data:
         print("TEST LOGDIR: ", logdir)
 
         pickle.dump([test_networks, test_programs], open(os.path.join(logdir, "test_data.pkl"), "wb"))
-        self.test_env = PlacementEnv(test_networks, test_programs, self.exp_cfg.memory_capacity)
+        self.eval_env = PlacementEnv(test_networks, test_programs, self.exp_cfg.memory_capacity)
 
         set = list(itertools.product(list(range(len(test_networks))), list(range(len(test_programs))), para['testing']['init_mapping']))
         np.random.shuffle(set)
@@ -512,23 +513,23 @@ class Experiment_on_data:
             self.agent.embedding.load_state_dict(torch.load(os.path.join(logdir, 'embedding.pk')))
             print('===========================================================================')
             print(f"RUNNING {self.exp_cfg.num_testing_cases_repeat} testing episodes for network {network_id}/program {program_id} ({i+1}/{len(set)}).")
-            run_episodes(self.test_env, self.agent,
+            run_episodes(self.eval_env, self.agent,
                          [program_id] * self.exp_cfg.num_testing_cases_repeat,
                          [network_id] * self.exp_cfg.num_testing_cases_repeat,
-                             [seed] * self.exp_cfg.num_testing_cases_repeat,
-                             use_placeto=self.exp_cfg.use_placeto,
-                             use_full_graph=not self.exp_cfg.use_op_selection,
-                             explore=True,
-                             samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
-                             update_policy=False,
-                             save_data=True,
-                             save_dir=logdir,
-                             save_name=f'test_program_{program_id}_network_{network_id}_seed_{seed}',
-                             noise=self.exp_cfg.noise)
+                         [seed] * self.exp_cfg.num_testing_cases_repeat,
+                         use_placeto=self.exp_cfg.use_placeto,
+                         use_full_graph=not self.exp_cfg.use_op_selection,
+                         explore=True,
+                         samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
+                         update_policy=False,
+                         save_data=True,
+                         save_dir=logdir,
+                         save_name=f'test_program_{program_id}_network_{network_id}_seed_{seed}',
+                         noise=self.exp_cfg.noise)
 
             if self.exp_cfg.num_tuning_episodes:
                 print(f"RUNNING {self.exp_cfg.num_tuning_episodes} tuning episodes for network {network_id}/program {program_id}.")
-                run_episodes(self.test_env, self.agent,
+                run_episodes(self.eval_env, self.agent,
                              [program_id] * self.exp_cfg.num_tuning_episodes,
                              [network_id] * self.exp_cfg.num_tuning_episodes,
                              [seed] * self.exp_cfg.num_tuning_episodes,
@@ -543,16 +544,16 @@ class Experiment_on_data:
                              noise=self.exp_cfg.noise)
 
                 print(f"RUNNING {self.exp_cfg.num_testing_cases_repeat} testing episodes for network {network_id}/program {program_id} after tuned.")
-                run_episodes(self.test_env, self.agent,
+                run_episodes(self.eval_env, self.agent,
                              [program_id] * self.exp_cfg.num_testing_cases_repeat,
                              [network_id] * self.exp_cfg.num_testing_cases_repeat,
-                                 [seed] * self.exp_cfg.num_testing_cases_repeat,
-                                use_placeto=self.exp_cfg.use_placeto,
-                                use_full_graph=not self.exp_cfg.use_op_selection,
-                                 explore=True,
-                                 samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
-                                 update_policy=False,
-                                 save_data=True,
-                                 save_dir=logdir,
-                                 save_name=f'test_program_{program_id}_network_{network_id}_seed_{seed}_tuned',
-                                 noise=self.exp_cfg.noise)
+                             [seed] * self.exp_cfg.num_testing_cases_repeat,
+                             use_placeto=self.exp_cfg.use_placeto,
+                             use_full_graph=not self.exp_cfg.use_op_selection,
+                             explore=True,
+                             samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
+                             update_policy=False,
+                             save_data=True,
+                             save_dir=logdir,
+                             save_name=f'test_program_{program_id}_network_{network_id}_seed_{seed}_tuned',
+                             noise=self.exp_cfg.noise)
