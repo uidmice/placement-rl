@@ -23,7 +23,7 @@ def get_args():
     parser.add_argument('--disable_cuda',
                         action='store_false',
                         dest='cuda',
-                        help='disable running on CUDA (default True is available)')
+                        help='disable running on CUDA (default True if available)')
     parser.add_argument('--noise',
                         default=0,
                         type=float,
