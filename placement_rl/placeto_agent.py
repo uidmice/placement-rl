@@ -10,8 +10,6 @@ from placement_rl.primative_nn import *
 # from placement_rl.rl_agent import SoftmaxActor
 # from env.latency import *
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-epsilon = 1e-6
 torch.autograd.set_detect_anomaly(True)
 
 
@@ -19,6 +17,7 @@ class Device_SoftmaxActor(nn.Module):
     def __init__(self,
                  input_dim,
                  n_device,
+                 device,
                  hidden_dim=32,
                  ):
         super(Device_SoftmaxActor, self).__init__()
@@ -43,7 +42,8 @@ class Aggregator(nn.Module):
                  node_dim,
                  emb_dim,
                  out_dim,
-                 reverse):
+                 reverse,
+                 device):
         super(Aggregator, self).__init__()
 
         self.reverse = reverse
@@ -70,14 +70,14 @@ class Aggregator(nn.Module):
 
 
 class MP(nn.Module):
-    def __init__(self, emb_dim,  k):
+    def __init__(self, emb_dim,  k, device):
         super(MP, self).__init__()
 
         self.emb_dim = emb_dim
         self.k = k
 
-        self.fpa = Aggregator(emb_dim, emb_dim, emb_dim, False).to(device)
-        self.bpa = Aggregator(emb_dim, emb_dim, emb_dim, True).to(device)
+        self.fpa = Aggregator(emb_dim, emb_dim, emb_dim, False, device).to(device)
+        self.bpa = Aggregator(emb_dim, emb_dim, emb_dim, True, device).to(device)
 
         self.node_transform = FNN(emb_dim, [emb_dim], emb_dim).to(device)
 
@@ -97,12 +97,12 @@ class MP(nn.Module):
         return torch.cat([out_fpa, out_bpa], dim=1)
 
 class PlaceToEmbedding(nn.Module):
-    def __init__(self, emb_size, k):
+    def __init__(self, emb_size, k, device):
         super(PlaceToEmbedding, self).__init__()
-        self.mp = MP(emb_size, k).to(device)
-        self.agg_p = Aggregator(emb_size * 2, emb_size * 2, emb_size * 2, False).to(device)
-        self.agg_c = Aggregator(emb_size * 2, emb_size * 2, emb_size * 2, True).to(device)
-        self.agg_r = Aggregator(emb_size * 2, emb_size * 2, emb_size * 2, False).to(device)
+        self.mp = MP(emb_size, k, device).to(device)
+        self.agg_p = Aggregator(emb_size * 2, emb_size * 2, emb_size * 2, False, device).to(device)
+        self.agg_c = Aggregator(emb_size * 2, emb_size * 2, emb_size * 2, True, device).to(device)
+        self.agg_r = Aggregator(emb_size * 2, emb_size * 2, emb_size * 2, False, device).to(device)
 
     def forward(self, g):
         return self.mp(g)
@@ -113,6 +113,7 @@ class PlaceToAgent:
                  node_dim,
                  out_dim,
                  n_device,
+                 device,
                  k=3,
                  hidden_dim=32,
                  lr=0.03,
@@ -126,9 +127,10 @@ class PlaceToAgent:
 
         self.lr = lr
         self.gamma = gamma
+        self.device = device
 
-        self.policy = Device_SoftmaxActor(node_dim * 8, n_device, hidden_dim).to(device)
-        self.embedding = PlaceToEmbedding(node_dim, k).to(device)
+        self.policy = Device_SoftmaxActor(node_dim * 8, n_device, device, hidden_dim).to(device)
+        self.embedding = PlaceToEmbedding(node_dim, k, device).to(device)
         self.optim = torch.optim.Adam(list(self.embedding.parameters()) +
                                       list(self.policy.parameters()), lr=lr)
 
@@ -145,13 +147,13 @@ class PlaceToAgent:
         g.ndata['y'] = emb
 
         if len(program.op_parents[op]):
-            p_g = dgl.node_subgraph(g, [op] + program.op_parents[op]).to(device)
+            p_g = dgl.node_subgraph(g, [op] + program.op_parents[op])
             pred_embeddings = self.embedding.agg_p(p_g)[0, :]
         else:
             pred_embeddings = torch.zeros(self.node_dim * 2)
 
         if len(program.op_children[op]):
-            c_g = dgl.node_subgraph(g, [op] + program.op_children[op]).to(device)
+            c_g = dgl.node_subgraph(g, [op] + program.op_children[op])
             desc_embeddings = self.embedding.agg_c(c_g)[0, :]
         else:
             desc_embeddings = torch.zeros(self.node_dim * 2)
@@ -159,7 +161,7 @@ class PlaceToAgent:
         # Parallels
         r = program.op_parallel[op]
         if len(r):
-            r_g = dgl.graph(([0] * len(r), range(1, len(r)+1))).to(device)
+            r_g = dgl.graph(([0] * len(r), range(1, len(r)+1)))
             idx = [op]+r
             r_g.ndata['y'] = emb[idx, :]
             parallel_embeddings = self.embedding.agg_r(r_g)[0, :]
@@ -167,7 +169,7 @@ class PlaceToAgent:
             parallel_embeddings = torch.zeros(self.node_dim * 2)
 
         node_embedding = emb[op, :]
-        embedding = torch.cat((pred_embeddings, desc_embeddings, parallel_embeddings, node_embedding), dim = -1).to(device)
+        embedding = torch.cat((pred_embeddings, desc_embeddings, parallel_embeddings, node_embedding), dim = -1)
 
 
         probs = self.policy(embedding, mask)
@@ -199,7 +201,7 @@ class PlaceToAgent:
                         except:
                             bk = sum(self.saved_rewards) / len(self.saved_rewards)
                     returns[i] -= bk
-            returns = torch.tensor(returns).to(device)
+            returns = torch.tensor(returns, device=self.device)
             self.optim.zero_grad()
             for log_prob, R in zip(self.log_probs, returns):
                 policy_loss = policy_loss - log_prob * R

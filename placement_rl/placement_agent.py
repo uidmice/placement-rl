@@ -3,13 +3,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import dgl
-from dgl.nn import GATConv
 
 
 from placement_rl.primative_nn import FNN
 from env.latency import *
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 epsilon = 1e-6
 torch.autograd.set_detect_anomaly(True)
 # # Soft update of target critic network
@@ -27,14 +25,16 @@ class MPLayer(nn.Module):
     def __init__(self,
                  node_dim,
                  edge_dim,
-                 out_dim):
+                 out_dim,
+                 device):
         super(MPLayer, self).__init__()
         self.node_dim = node_dim
         self.edge_dim = edge_dim
         self.out_dim = out_dim
+        self.device = device
 
-        self.pre_layer = FNN(node_dim + edge_dim, [], node_dim + edge_dim)
-        self.update_layer = FNN(2 * node_dim + edge_dim, [], out_dim)
+        self.pre_layer = FNN(node_dim + edge_dim, [], node_dim + edge_dim).to(device)
+        self.update_layer = FNN(2 * node_dim + edge_dim, [], out_dim).to(device)
 
     def msg_func(self, edges):
         msg = self.pre_layer(torch.cat([edges.src['x'], edges.data['x']], dim=1))
@@ -52,7 +52,7 @@ class MPLayer(nn.Module):
         return {'h': F.relu(h)}
 
     def forward(self, g,  reverse):
-        g.ndata['z'] = torch.rand(g.num_nodes(), self.node_dim + self.edge_dim).to(device)
+        g.ndata['z'] = torch.rand(g.num_nodes(), self.node_dim + self.edge_dim, device=self.device)
         dgl.prop_nodes_topo(g, self.msg_func,
                             self.reduce_func,
                             reverse,
@@ -61,14 +61,14 @@ class MPLayer(nn.Module):
         return h
 
 class OpNet(nn.Module):
-    def __init__(self, node_dim, edge_dim, out_dim):
+    def __init__(self, node_dim, edge_dim, out_dim, device):
         super(OpNet, self).__init__()
         self.node_dim = node_dim
         self.out_dim = out_dim
         self.edge_dim = edge_dim
 
-        self.fmp = MPLayer(node_dim, edge_dim, out_dim//2)
-        self.bmp = MPLayer(node_dim, edge_dim, out_dim//2)
+        self.fmp = MPLayer(node_dim, edge_dim, out_dim//2, device)
+        self.bmp = MPLayer(node_dim, edge_dim, out_dim//2, device)
 
     def forward(self,  g):
         hf = self.fmp(g, False)
@@ -78,6 +78,7 @@ class OpNet(nn.Module):
 class SoftmaxActor(nn.Module):
     def __init__(self,
                  input_dim,
+                 device,
                  hidden_dim=32,
                  ):
         super(SoftmaxActor, self).__init__()
@@ -85,7 +86,7 @@ class SoftmaxActor(nn.Module):
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
 
-        self.nn = FNN(input_dim, [hidden_dim], 1)
+        self.nn = FNN(input_dim, [hidden_dim], 1).to(device)
 
 
     def forward(self, x, mask=None):
@@ -98,6 +99,7 @@ class SoftmaxActor(nn.Module):
 
 class PlacementAgent:
     def __init__(self, node_dim, edge_dim, out_dim,
+                 device,
                  hidden_dim=32,
                  lr=0.03,
                  gamma=0.95):
@@ -109,8 +111,10 @@ class PlacementAgent:
         self.lr = lr
         self.gamma = gamma
 
-        self.embedding = OpNet(node_dim, edge_dim, out_dim).to(device)
-        self.policy = SoftmaxActor(out_dim, hidden_dim).to(device)
+        self.device = device
+
+        self.embedding = OpNet(node_dim, edge_dim, out_dim, device=device)
+        self.policy = SoftmaxActor(out_dim, device, hidden_dim)
         self.optim = torch.optim.Adam(list(self.embedding.parameters()) + list(self.policy.parameters()), lr=lr)
         self.log_probs = []
 
@@ -175,7 +179,7 @@ class PlacementAgent:
                             bk = sum(self.saved_rewards) / len(self.saved_rewards)
                     returns[i] -= bk
 
-            returns = torch.tensor(returns).to(device)
+            returns = torch.tensor(returns, device=self.device)
             # returns = (returns - returns.mean()) / (returns.std() + epsilon)
 
             self.optim.zero_grad()

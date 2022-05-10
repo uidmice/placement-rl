@@ -23,7 +23,7 @@ def get_args():
     parser.add_argument('--disable_cuda',
                         action='store_false',
                         dest='cuda',
-                        help='disable running on CUDA')
+                        help='disable running on CUDA (default True is available)')
     parser.add_argument('--noise',
                         default=0,
                         type=float,
@@ -162,8 +162,8 @@ def get_args():
     parser.add_argument(
         '--placeto_k',
         type=int,
-        default=5,
-        help='Number of layers for placeto (default: 5)'
+        default=8,
+        help='Number of layers for placeto (default: 8)'
     )
 
     parser.add_argument(

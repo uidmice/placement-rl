@@ -20,8 +20,6 @@ from placement_rl.placeto_agent import PlaceToAgent
 import os
 import pickle
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 def load_data_from_dir(network_path, program_path, exp_cfg):
     network_para_train = exp_cfg.data_parameters['training']['networks']
     program_para_train = exp_cfg.data_parameters['training']['programs']
@@ -186,6 +184,7 @@ def run_episodes(env,
                  program_ids,
                  network_ids,
                  seeds,
+                 device,
                  use_full_graph=True,
                  use_placeto=False,
                  explore=True,
@@ -315,6 +314,10 @@ class Experiment_on_data:
     def __init__(self, exp_config):
         self.seed = exp_config.seed
         self.exp_cfg = exp_config
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if not exp_config.cuda:
+            self.device = torch.device('cpu')
+        print(f"Running on {self.device}")
 
         if exp_config.load_dir is not None:
             self.exp_cfg = pickle.load(open(os.path.join(exp_config.load_dir, 'args.pkl'),'rb'))
@@ -345,6 +348,7 @@ class Experiment_on_data:
         if self.exp_cfg.use_placeto:
             self.agent = PlaceToAgent(len(PlacementEnv.PLACETO_FEATURES),
                                   self.exp_cfg.output_dim,
+                                   device=self.device,
                                   n_device = self.exp_cfg.data_parameters['training']['networks'][0]['num_of_devices'][0],
                                   k=self.exp_cfg.placeto_k,
                                   hidden_dim=self.exp_cfg.hidden_dim,
@@ -353,6 +357,7 @@ class Experiment_on_data:
         else:
             self.agent = PlacementAgent(PlacementEnv.get_node_feature_dim(), PlacementEnv.get_edge_feature_dim(),
                                    self.exp_cfg.output_dim,
+                                   device=self.device,
                                    hidden_dim=self.exp_cfg.hidden_dim, lr=self.exp_cfg.lr, gamma=self.exp_cfg.gamma)
 
         if exp_config.load_dir:
@@ -417,6 +422,7 @@ class Experiment_on_data:
                                         train_program_id,
                                         train_network_id,
                                         train_init_map,
+                                        device=self.device,
                                         use_placeto=self.exp_cfg.use_placeto,
                                         use_full_graph=full_graph,
                                         samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
@@ -433,6 +439,7 @@ class Experiment_on_data:
                                            self.eval_cases_program,
                                            self.eval_cases_network,
                                            self.eval_cases_init_mapping,
+                                           device=self.device,
                                            use_placeto=self.exp_cfg.use_placeto,
                                            use_full_graph=full_graph,
                                            samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
@@ -480,9 +487,11 @@ class Experiment_on_data:
         return record
 
     def test(self, para, max_num_of_tests):
-
         if para is None:
-            para = json.load(open(os.path.join(self.logdir, 'run_data.txt'), 'r'))['data_para']
+            try:
+                para = json.load(open(os.path.join(self.logdir, 'run_data.txt'), 'r'))['data_para']
+            except:
+                raise ValueError('Nothing to test')
 
         test_networks = networks_from_para(para['testing']['networks'], para['num_of_types'])
         test_programs = programs_from_para(para['testing']['programs'], para['num_of_types'])
@@ -523,6 +532,7 @@ class Experiment_on_data:
                          [program_id] * self.exp_cfg.num_testing_cases_repeat,
                          [network_id] * self.exp_cfg.num_testing_cases_repeat,
                          [seed] * self.exp_cfg.num_testing_cases_repeat,
+                         device=self.device,
                          use_placeto=self.exp_cfg.use_placeto,
                          use_full_graph=not self.exp_cfg.use_op_selection,
                          explore=True,
@@ -539,6 +549,7 @@ class Experiment_on_data:
                              [program_id] * self.exp_cfg.num_tuning_episodes,
                              [network_id] * self.exp_cfg.num_tuning_episodes,
                              [seed] * self.exp_cfg.num_tuning_episodes,
+                             device=self.device,
                              use_placeto=self.exp_cfg.use_placeto,
                              use_full_graph=not self.exp_cfg.use_op_selection,
                              explore=True,
@@ -554,6 +565,7 @@ class Experiment_on_data:
                              [program_id] * self.exp_cfg.num_testing_cases_repeat,
                              [network_id] * self.exp_cfg.num_testing_cases_repeat,
                              [seed] * self.exp_cfg.num_testing_cases_repeat,
+                             device=self.device,
                              use_placeto=self.exp_cfg.use_placeto,
                              use_full_graph=not self.exp_cfg.use_op_selection,
                              explore=True,
