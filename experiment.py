@@ -212,10 +212,6 @@ def run_episodes(env,
 
         num_of_samples = int( program.n_operators*  samples_to_ops_ratio)
         if use_placeto:
-            num_of_samples = program.n_operators
-            random.seed()
-            placeto_order = list(range(program.n_operators))
-            random.shuffle(placeto_order)
             mask = torch.ones(network.n_devices).to(device)
 
         elif use_full_graph:
@@ -246,12 +242,18 @@ def run_episodes(env,
                 ep_data['ep_return'] = 0
 
                 cur_mapping = env.random_mapping(program_id, network_id, seed)
+
                 last_latency, path, G_stats = env.simulate(program_id, network_id, cur_mapping, noise)
                 new_episode = False
 
+                if use_placeto:
+                    random.seed()
+                    placeto_order = list(range(program.n_operators))
+                    random.shuffle(placeto_order)
+
             if use_placeto:
-                s = placeto_order[t]
-                g = env.get_placeto_graph(program_id, network_id, cur_mapping, G_stats, s, placeto_order[:t]).to(device)
+                s = placeto_order[t % program.n_operators]
+                g = env.get_placeto_graph(program_id, network_id, cur_mapping, G_stats, s, placeto_order[:t% program.n_operators]).to(device)
                 mask[:] = 1
                 mask[constraints[s]] = 0
                 action = agent.dev_selection(g, program, s, mask)
@@ -288,6 +290,8 @@ def run_episodes(env,
             ep_data['ep_return'] = reward + ep_data['ep_return'] * agent.gamma
 
             end_episode = (len(case_data['sampled_placement']) == num_of_samples)
+            if use_placeto:
+                end_episode = (len(case_data['sampled_placement'])  == program.n_operators)
 
             if end_episode:
                 agent.finish_episode(update_network=update_policy, use_baseline=True)
@@ -400,6 +404,8 @@ class Experiment_on_data:
             train_network_id = np.random.choice(len(self.train_networks), self.exp_cfg.eval_frequency).tolist()
             train_program_id = np.random.choice(len(self.train_programs), self.exp_cfg.eval_frequency).tolist()
             train_init_map = np.random.choice(self.exp_cfg.data_parameters['training']['init_mapping'], self.exp_cfg.eval_frequency).tolist()
+            if self.exp_cfg.use_placeto:
+                train_init_map = [-1] * self.exp_cfg.eval_frequency
 
             print('===========================================================================')
             print(f"RUNNING {cnt}th training batch. Max {self.max_num_train_episodes // self.exp_cfg.eval_frequency} batches. ")
