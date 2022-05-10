@@ -245,6 +245,9 @@ def run_episodes(env,
                 last_latency, path, G_stats = env.simulate(program_id, network_id, cur_mapping, noise)
                 new_episode = False
 
+                g = None
+                last_action=None
+
                 if use_placeto:
                     random.seed()
                     placeto_order = list(range(program.n_operators))
@@ -258,7 +261,7 @@ def run_episodes(env,
                 action = agent.dev_selection(g, program, s, mask)
 
             elif use_full_graph:
-                g = env.get_full_graph(program_id, network_id, cur_mapping, G_stats, path, False).to(device)
+                g = env.get_full_graph(program_id, network_id, cur_mapping, G_stats, device, path, False, last_g=g, last_action=last_action).to(device)
                 if explore:
                     cur_nodes = [node_dict[o][cur_mapping[o]] for o in node_dict]
                     mask[:] = 1
@@ -268,6 +271,7 @@ def run_episodes(env,
                         mask[list(node_dict[last_op].values())] = 0
 
                 s, action = agent.op_dev_selection(g, action_dict, mask)
+                last_action = [s, cur_mapping[s], action]
 
             else:
                 # pdb.set_trace()
