@@ -1,8 +1,11 @@
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.nn import Linear
 import torch.nn.functional as F
 import dgl
+import math
+import pdb
 
 
 from placement_rl.primative_nn import FNN
@@ -20,6 +23,57 @@ torch.autograd.set_detect_anomaly(True)
 # def hard_update(target, source):
 #     for target_param, param in zip(target.parameters(), source.parameters()):
 #         target_param.data.copy_(param.data)
+
+GNN_MSG_KEY = 'm'
+GNN_NODE_FEAT_IN_KEY = 'hn_in'
+GNN_NODE_FEAT_OUT_KEY = 'hn_out'
+GNN_EDGE_FEAT_KEY = 'he'
+GNN_AGG_MSG_KEY = 'h_msg'
+GNN_NODE_NORM = 'norm'
+GNN_NODE_LABELS_KEY = 'hnl'
+GNN_NODE_ATTS_KEY = 'hna'
+GNN_EDGE_LABELS_KEY = 'hel'
+GNN_EDGE_NORM = 'norm'
+
+GRAPH_CLASSIFICATION = 'graph_classification'
+NODE_CLASSIFICATION = 'node_classification'
+
+AIFB = 'aifb'
+MUTAG = 'mutag'
+MUTAGENICITY = 'mutagenicity'
+PTC_FM = 'ptc_fm'
+PTC_FR = 'ptc_fr'
+PTC_MM = 'ptc_mm'
+PTC_MR = 'ptc_mr'
+
+
+def reset_graph_features(g):
+    keys = [GNN_NODE_FEAT_IN_KEY, GNN_AGG_MSG_KEY, GNN_MSG_KEY, GNN_NODE_FEAT_OUT_KEY]
+    for key in keys:
+        if key in g.ndata:
+            del g.ndata[key]
+    if GNN_EDGE_FEAT_KEY in g.edata:
+        del g.edata[GNN_EDGE_FEAT_KEY]
+
+def reset(nn):
+    def _reset(item):
+        if hasattr(item, 'reset_parameters'):
+            item.reset_parameters()
+
+    if nn is not None:
+        if hasattr(nn, 'children') and len(list(nn.children())) > 0:
+            for item in nn.children():
+                _reset(item)
+        else:
+            _reset(nn)
+
+def init_weights(m):
+    if isinstance(m, Linear):
+        stdv = 1. / math.sqrt(m.weight.size(1))
+        nn.init.xavier_uniform_(m.weight)
+        if m.bias is not None:
+            m.bias.data.uniform_(-stdv, stdv)
+
 
 class MPLayer(nn.Module):
     def __init__(self,
@@ -75,6 +129,114 @@ class OpNet(nn.Module):
         hb = self.bmp(g, True)
         return torch.cat([hf, hb], dim=1)
 
+
+class edGNNLayer(nn.Module):
+    def __init__(self,
+                 node_dim,
+                 edge_dim,
+                 out_feats,
+                 activation=None,
+                 bias=None):
+
+        super(edGNNLayer, self).__init__()
+
+        # 1. set parameters
+        self.node_dim = node_dim
+        self.out_feats = out_feats
+        self.activation = activation
+        self.edge_dim = edge_dim
+        self.bias = bias
+
+        # 2. create variables
+        self._build_parameters()
+
+        # 3. initialize variables
+        self.apply(init_weights)
+
+    def reset_parameters(self):
+        reset(self.linear)
+
+    def _build_parameters(self):
+        input_dim = 2 * self.node_dim
+        if self.edge_dim is not None:
+            input_dim = input_dim + self.edge_dim
+
+        self.linear = nn.Linear(input_dim, self.out_feats, bias=self.bias)
+
+
+    def gnn_msg(self, edges):
+        if self.g.edata is not None:
+            msg = torch.cat([edges.src[GNN_NODE_FEAT_IN_KEY],
+                             edges.data[GNN_EDGE_FEAT_KEY]],
+                            dim=1)
+        else:
+            msg = edges.src[GNN_NODE_FEAT_IN_KEY]
+        return {GNN_MSG_KEY: msg}
+
+    def gnn_reduce(self, nodes):
+        accum = torch.sum((nodes.mailbox[GNN_MSG_KEY]), 1)
+        return {GNN_AGG_MSG_KEY: accum}
+
+    def node_update(self, nodes):
+        h = torch.cat([nodes.data[GNN_NODE_FEAT_IN_KEY],
+                       nodes.data[GNN_AGG_MSG_KEY]],
+                      dim=1)
+        h = self.linear(h)
+
+        if self.activation:
+            h = self.activation(h)
+
+        return {GNN_NODE_FEAT_OUT_KEY: h}
+
+    def forward(self, node_features, edge_features, g):
+
+        if g is not None:
+            self.g = g
+
+        # 1. clean graph features
+        reset_graph_features(self.g)
+
+        # 2. set current iteration features
+        self.g.ndata[GNN_NODE_FEAT_IN_KEY] = node_features
+        self.g.edata[GNN_EDGE_FEAT_KEY] = edge_features
+
+        # 3. aggregate messages
+        self.g.update_all(self.gnn_msg,
+                          self.gnn_reduce,
+                          self.node_update)
+
+        h = self.g.ndata.pop(GNN_NODE_FEAT_OUT_KEY)
+        return h
+
+
+
+class EdGNN(nn.Module):
+    def __init__(self, node_dim, edge_dim, out_dim, device, hidden_dim = 128):
+        super(EdGNN, self).__init__()
+        self.node_dim = node_dim
+        self.out_dim = out_dim
+        self.edge_dim = edge_dim
+        self.hidden_dim = hidden_dim
+        self.device = device
+
+        self.edgnn_1 = edGNNLayer(node_dim, edge_dim, hidden_dim, nn.ReLU()).to(device)
+        self.edgnn_2 = edGNNLayer(hidden_dim, edge_dim, hidden_dim, nn.ReLU()).to(device)
+        self.edgnn_3 = edGNNLayer(hidden_dim, edge_dim, hidden_dim, nn.ReLU()).to(device)
+        self.edgnn_4 = edGNNLayer(hidden_dim, edge_dim, out_dim, None).to(device)
+
+
+    def forward(self,  g):
+        node_feature = g.ndata['x']
+        edge_feature = g.edata['x']
+
+        h = self.edgnn_1(node_feature, edge_feature, g)
+        h = self.edgnn_2(h, edge_feature, g)
+        h = self.edgnn_3(h, edge_feature, g)
+        h = self.edgnn_4(h, edge_feature, g)
+
+        return h
+
+
 class SoftmaxActor(nn.Module):
     def __init__(self,
                  input_dim,
@@ -102,18 +264,24 @@ class PlacementAgent:
                  device,
                  hidden_dim=32,
                  lr=0.03,
-                 gamma=0.95):
+                 gamma=0.95,
+                 use_edgnn = False):
         self.node_dim = node_dim
         self.edge_dim = edge_dim
         self.out_dim = out_dim
         self.hidden_dim = hidden_dim
+        self.use_edgnn = use_edgnn
 
         self.lr = lr
         self.gamma = gamma
 
         self.device = device
 
-        self.embedding = OpNet(node_dim, edge_dim, out_dim, device=device)
+        if not use_edgnn:
+            self.embedding = OpNet(node_dim, edge_dim, out_dim, device=device)
+        else:
+            self.embedding = EdGNN(node_dim, edge_dim, out_dim, device)
+
         self.policy = SoftmaxActor(out_dim, device, hidden_dim)
         self.optim = torch.optim.Adam(list(self.embedding.parameters()) + list(self.policy.parameters()), lr=lr)
         self.log_probs = []
@@ -130,6 +298,7 @@ class PlacementAgent:
         return action.item()
 
     def op_dev_selection(self, g, action_dict, mask=None):
+        # pdb.set_trace()
         placement_embedding = self.embedding(g)
         probs = self.policy(placement_embedding, mask)
         m = torch.distributions.Categorical(probs=probs)

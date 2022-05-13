@@ -160,6 +160,11 @@ def get_args():
         help='Use placeto')
 
     parser.add_argument(
+        '--use_edgnn',
+        action='store_true',
+        help='Use edgnn')
+
+    parser.add_argument(
         '--placeto_k',
         type=int,
         default=8,
