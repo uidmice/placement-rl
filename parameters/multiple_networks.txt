@@ -1,0 +1,49 @@
+{
+"num_of_types": 5,
+"training": {
+	"init_mapping": [-1], 
+	"networks": [{
+		"num_of_devices": [20],
+		"seed": [0,1,2,3,4,5,6,7,8,9],
+		"constraint_prob": [0.2], 
+		"compute_speed": [5],
+		"bw": [100], 
+		"delay": [10], 
+		"beta_bw": [0.2], 
+		"beta_speed": [0.2]
+		}],
+	"programs": [{
+		"v": [10, 15],
+		"seed": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+		"conn_prob": [0.1, 0.2],
+		"alpha": [0.1, 0.2, 0.3],
+		"compute": [100],
+		"bytes": [100],
+		"bete_compute": [0.2],
+		"beta_byte": [0.2]
+		}]
+	},
+"testing": {
+	"init_mapping": [20],
+	"networks": [{
+		"num_of_devices": [20],
+		"seed": [0,1,2,3,4,5,6,7,8,9],
+		"constraint_prob": [0.2], 
+		"compute_speed": [5],
+		"bw": [100], 
+		"delay": [10], 
+		"beta_bw": [0.2], 
+		"beta_speed": [0.2]
+		}],
+	"programs": [{
+		"v": [10, 15],
+		"seed": [25, 26, 27, 28, 29, 30, 31, 32, 33, 34],
+		"conn_prob": [0.1, 0.2],
+		"alpha": [0.1, 0.2, 0.3],
+		"compute": [100],
+		"bytes": [100],
+		"bete_compute": [0.2],
+		"beta_byte": [0.2]
+		}]
+	}
+}

@@ -142,7 +142,7 @@ def schedule(succ, agents, compcost, commcost):
     jobs = set(succ.keys()) | set(x for xx in succ.values() for x in xx)
     jobs = sorted(jobs, key=rank)
 
-    orders = {agent: [] for agent in set().union(*agents.values())}
+    orders = {agent: [] for agent in set().union(*agents)}
     jobson = dict()
     for job in reversed(jobs):
         allocate(job, orders, jobson, prec, compcost, commcost, agents)

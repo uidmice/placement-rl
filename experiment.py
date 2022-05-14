@@ -493,12 +493,13 @@ class Experiment_on_data:
     def test(self, para, max_num_of_tests):
         if para is None:
             try:
+                test_networks, test_programs = pickle.load(open(os.path.join(self.logdir, 'eval_data.pkl'), 'rb'))
                 para = json.load(open(os.path.join(self.logdir, 'run_data.txt'), 'r'))['data_para']
             except:
                 raise ValueError('Nothing to test')
-
-        test_networks = networks_from_para(para['testing']['networks'], para['num_of_types'])
-        test_programs = programs_from_para(para['testing']['programs'], para['num_of_types'])
+        else:
+            test_networks = networks_from_para(para['testing']['networks'], para['num_of_types'])
+            test_programs = programs_from_para(para['testing']['programs'], para['num_of_types'])
 
         logdir = os.path.join(self.logdir, 'test_{}'.format(datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")))
         if not os.path.exists(logdir):

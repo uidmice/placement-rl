@@ -32,7 +32,7 @@ def heft(program, network):
     compcost = lambda op, dev: computation_latency(program, network, op, dev)
     commcost = lambda op1, op2, d1, d2: communication_latency(program, network, op1, op2, d1, d2)
     orders, jobson = schedule(dag, constraints, compcost, commcost)
-    return [jobson[i] for i in range(program.n_operators)], max(e.end for e in orders[program.pinned[1]])
+    return [jobson[i] for i in range(program.n_operators)], max(e.end for e in orders[jobson[program.n_operators-1]])
 
 def random_op_est_dev(program, network, init_mapping, iter_num=50, noise=0):
     map = init_mapping.copy()

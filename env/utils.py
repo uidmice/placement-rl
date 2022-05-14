@@ -151,6 +151,7 @@ def generate_network(n_devices,
                      b_bw=0.2,
                      b_speed=0.2
                      ):
+    np.random.seed(seed)
     delay = np.random.uniform(0, 2 * avg_delay, (n_devices, n_devices))
     avg_comm = 1 / avg_bw
     comm_speed = np.random.uniform(avg_comm * (1 - b_bw / 2), avg_comm * (1 + b_bw / 2), (n_devices, n_devices))
