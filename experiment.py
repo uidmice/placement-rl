@@ -358,11 +358,13 @@ class Experiment_on_data:
                                   hidden_dim=self.exp_cfg.hidden_dim,
                                   lr=self.exp_cfg.lr,
                                   gamma=self.exp_cfg.gamma)
+
         else:
             self.agent = PlacementAgent(PlacementEnv.get_node_feature_dim(), PlacementEnv.get_edge_feature_dim(),
                                    self.exp_cfg.output_dim,
                                    device=self.device,
-                                   hidden_dim=self.exp_cfg.hidden_dim, lr=self.exp_cfg.lr, gamma=self.exp_cfg.gamma)
+                                   hidden_dim=self.exp_cfg.hidden_dim, lr=self.exp_cfg.lr, gamma=self.exp_cfg.gamma,
+                                   use_edgnn = self.exp_cfg.use_edgnn)
 
         if exp_config.load_dir:
             self.agent.policy.load_state_dict(torch.load(os.path.join(self.logdir, exp_config.policy_model)))
