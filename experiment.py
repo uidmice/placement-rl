@@ -15,6 +15,7 @@ from env.utils import *
 
 from placement_rl.placement_env import PlacementEnv
 from placement_rl.placement_agent import PlacementAgent
+from placement_rl.placement_agent_radial import PlacementAgent_Radial
 from placement_rl.placeto_agent import PlaceToAgent
 
 import os
@@ -351,6 +352,8 @@ class Experiment_on_data:
 
         if not hasattr(self.exp_cfg, 'use_edgnn'):
             setattr(self.exp_cfg, 'use_edgnn', False)
+        if not hasattr(self.exp_cfg, 'use_radial_mp'):
+            setattr(self.exp_cfg, 'use_radial_mp', False)
 
         if self.exp_cfg.use_placeto:
             self.agent = PlaceToAgent(len(PlacementEnv.PLACETO_FEATURES),
@@ -362,12 +365,17 @@ class Experiment_on_data:
                                   lr=self.exp_cfg.lr,
                                   gamma=self.exp_cfg.gamma)
 
+        elif self.exp_cfg.use_radial_mp:
+            self.agent = PlacementAgent_Radial(PlacementEnv.get_node_feature_dim(), PlacementEnv.get_edge_feature_dim(),
+                                               self.exp_cfg.output_dim, self.device, k=self.exp_cfg.radial_k)
         else:
             self.agent = PlacementAgent(PlacementEnv.get_node_feature_dim(), PlacementEnv.get_edge_feature_dim(),
                                    self.exp_cfg.output_dim,
                                    device=self.device,
                                    hidden_dim=self.exp_cfg.hidden_dim, lr=self.exp_cfg.lr, gamma=self.exp_cfg.gamma,
                                    use_edgnn = self.exp_cfg.use_edgnn)
+
+
 
         if exp_config.load_dir:
             self.exp_cfg.load_dir = exp_config.load_dir

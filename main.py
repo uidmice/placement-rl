@@ -47,7 +47,7 @@ def get_args():
 
     parser.add_argument("-p", "--data_parameters",
                         type=validate_file,
-                        default='parameters/single_network.txt',
+                        default='parameters/multiple_networks.txt',
                         help="json text file specifying the training/testing dataset parameters", metavar="FILE")
 
     parser.add_argument('--disable_train',
@@ -170,6 +170,17 @@ def get_args():
         default=8,
         help='Number of layers for placeto (default: 8)'
     )
+
+    parser.add_argument(
+        '--use_radial_mp',
+        action = 'store_true',
+        help = 'Use placeto')
+
+    parser.add_argument(
+        '--radial_k',
+        type = int,
+        default = 8,
+        help = 'Number of layers for radial (default: 8)')
 
     parser.add_argument(
         '--use_rl_op_est_device',

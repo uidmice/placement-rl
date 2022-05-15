@@ -142,10 +142,10 @@ class PlacementAgent_Radial:
 
         self.device = device
 
-        self.embedding = GiPHEmbedding(node_dim, edge_dim, out_dim,k, device=device)
+        self.embedding = GiPHEmbedding(node_dim, edge_dim, out_dim//2,k, device=device)
 
 
-        self.policy = SoftmaxActor(2 * out_dim, device, hidden_dim)
+        self.policy = SoftmaxActor(out_dim, device, hidden_dim)
         self.optim = torch.optim.Adam(list(self.embedding.parameters()) + list(self.policy.parameters()), lr=lr)
         self.log_probs = []
 
