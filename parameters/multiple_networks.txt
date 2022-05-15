@@ -9,8 +9,8 @@
 		"compute_speed": [5],
 		"bw": [100], 
 		"delay": [10], 
-		"beta_bw": [0.2], 
-		"beta_speed": [0.2]
+		"beta_bw": [0.5],
+		"beta_speed": [0.5]
 		}],
 	"programs": [{
 		"v": [10, 15],
