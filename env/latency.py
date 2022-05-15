@@ -12,8 +12,8 @@ def computation_latency(program, network, op, dev, noise=0):
         return r
 
     if noise <= 1:
-        return torch.clamp(torch.normal(mean = r, std = noise * r), min=r*(1-noise), max=r*(1+noise))
-
+        # return torch.clamp(torch.normal(mean = r, std = noise * r), min=r*(1-noise), max=r*(1+noise))
+        return r * (1-noise) + torch.rand([])* 2 * r * noise
     return max(torch.tensor(0).float(), torch.normal(mean = r, std=noise))
 
 def all_computation_latency(program, network, noise=0):
@@ -110,7 +110,11 @@ def simulate (mapping, program, network, noise=0, repeat=1):
 
     times = []
     paths = []
-    for i in range(repeat):
+    repeat_n = repeat
+    if noise == 0:
+        repeat_n = 1
+
+    for i in range(repeat_n):
         env = simpy.Environment()
         comm_events = {}
         finish_event = {}
@@ -148,6 +152,8 @@ def simulate (mapping, program, network, noise=0, repeat=1):
         paths.append(critical_path)
     if repeat == 1:
         return G, times[0], paths[0]
+    if repeat_n == 1:
+        return G, times * repeat, paths
     return G, times,  paths
 
 def evaluate(mapping, program, network, noise=0, repeat=1):

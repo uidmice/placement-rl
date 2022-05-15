@@ -277,7 +277,7 @@ def run_episodes(env,
                 # pdb.set_trace()
                 g = env.get_cardinal_graph(program_id, network_id, cur_mapping, G_stats, path).to(device)
                 s = agent.op_selection(g)
-                action = agent.dev_selection_est(program, network, cur_mapping, G_stats, s,
+                action = agent.dev_selection_eft(program, network, cur_mapping, G_stats, s,
                                                  constraints[s])
             cur_mapping[s] = action
             ep_data['actions'].append([s, action])
