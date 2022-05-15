@@ -13,47 +13,93 @@ def get_placement_constraints(program, network):
 
 def random_placement(program, network, constraints, number_mappings=100, noise=0):
     latencies = np.zeros(number_mappings)
-    min_lat = np.Inf
-
     for i in range(number_mappings):
         mapping = [np.random.choice(constraints[i]) for i in range(program.n_operators)]
-        latencies[i] = evaluate(mapping, program, network, noise)
-        if latencies[i] < min_lat:
-            min_lat = latencies[i]
-            map = mapping
-    return map, min_lat, latencies
+        latencies[i] = evaluate(mapping, program, network, noise, repeat=3)
+    return map, latencies
 
-def heft(program, network):
-    dag = {}
-    for n in program.P.nodes:
-        dag[n] = list(program.P.neighbors(n))
 
-    constraints = get_placement_constraints(program, network)
-    compcost = lambda op, dev: computation_latency(program, network, op, dev)
-    commcost = lambda op1, op2, d1, d2: communication_latency(program, network, op1, op2, d1, d2)
-    orders, jobson = schedule(dag, constraints, compcost, commcost)
-    return [jobson[i] for i in range(program.n_operators)], max(e.end for e in orders[jobson[program.n_operators-1]])
+def heft(program, network, constraints):
+    G = nx.DiGraph()
+    G.add_edges_from(program.P.edges())
+    for n in G.nodes():
+        G.nodes[n]['w'] = np.mean([computation_latency(program, network, n, d) for d in constraints[n]])
 
-def random_op_est_dev(program, network, init_mapping, iter_num=50, noise=0):
+    for e in G.edges():
+        d1 = constraints[e[0]]
+        d2 = constraints[e[1]]
+        comm_t = [communication_latency(program, network, e[0], e[1], dev1, dev2) for dev1 in d1 for dev2 in d2]
+        G.edges[e]['w'] = np.mean(comm_t)
+
+    for n in reversed(list(nx.topological_sort(G))):
+        r = G.nodes[n]['w']
+        m = 0
+        for v in G.successors(n):
+            m = max(m, G.nodes[v]['ranku'] + G.edges[n, v]['w'])
+        G.nodes[n]['ranku'] = r + m
+
+    dev_schedule = {}
+
+
+    for n in reversed(sorted(G.nodes(), key=lambda n: G.nodes[n]['ranku'])):
+        eft = {}
+        for dev in constraints[n]:
+            parent_ft = np.array([G.nodes[v]['ft'] for v in G.predecessors(n)])
+            comm_time = np.array([communication_latency(program, network, v, n, G.nodes[v]['dev'], dev) for v in G.predecessors(n)])
+            if len(parent_ft) > 0:
+                est = np.max(parent_ft + comm_time)
+            else:
+                est = 0
+
+            comp_time = computation_latency(program, network, n, dev)
+
+            if dev not in dev_schedule:
+                eft[dev] = [est, est+ comp_time]
+            else:
+                schedule = dev_schedule[dev]
+                schedule.sort(key=lambda n: n[0])
+                slots = [[-np.Inf, schedule[0][0]]]
+                slots += [[schedule[i][1], schedule[i+1][0]] for i in range(len(slots)-1)]
+                slots += [[schedule[-1][1], np.Inf]]
+
+                for slot in slots:
+                    if est >= slot[0] and est+comp_time<= slot[1]:
+                        eft[dev] = [est, est + comp_time]
+                        break
+                    if slot[0] > np.Inf and (slot[0] + comp_time < slot[1]):
+                        eft[dev] = [slot[0], slot[0] + comp_time]
+                        break
+
+        selected_dev = min(eft, key=lambda d: eft[d][1])
+        G.nodes[n]['dev'] = selected_dev
+        G.nodes[n]['ft'] = eft[selected_dev][1]
+        if selected_dev in dev_schedule:
+            dev_schedule[selected_dev].append(eft[selected_dev])
+        else:
+            dev_schedule[selected_dev] = [eft[selected_dev]]
+    return [G.nodes[n]['dev'] for n in range(program.n_operators)]
+
+
+
+def random_op_eft_dev(program, network, init_mapping, constraints, iter_num=50, noise=0):
     map = init_mapping.copy()
-    last_latency = evaluate(map, program, network, noise)
-    latencies = [last_latency]
+    latencies = []
     for i in range(iter_num):
         o = np.random.choice(program.n_operators)
-        if o==0:
-            latencies.append(latencies[-1])
-            continue
         est = {}
         parents = program.op_parents[o]
         G, _, _ = simulate(map, program, network, noise)
         end_time = np.array([np.average(G.nodes[p]['end_time']) for p in parents])
-        constraints = get_placement_constraints(program, network)
         for d in constraints[o]:
             c_time = np.array([communication_latency(program, network, p, o, map[p], d) for p in parents])
-            est[d] = np.max(c_time + end_time)
+            comp_time = computation_latency(program, network, o, d)
+            if len(c_time) > 0:
+                est[d] = np.max(c_time + end_time) + comp_time
+            else:
+                est[d] = comp_time
         map[o] = min(est, key=est.get)
         latencies.append(evaluate(map, program, network, noise, repeat=3))
-    return map, latencies[-1], latencies
+    return map, latencies
 
 
 def random_op_greedy_dev(program, network, init_mapping, iter_num=50, noise=0):
