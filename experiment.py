@@ -349,6 +349,9 @@ class Experiment_on_data:
 
         print("LOGDIR: ", self.logdir)
 
+        if not hasattr(self.exp_cfg, 'use_edgnn'):
+            setattr(self.exp_cfg, 'use_edgnn', False)
+
         if self.exp_cfg.use_placeto:
             self.agent = PlaceToAgent(len(PlacementEnv.PLACETO_FEATURES),
                                   self.exp_cfg.output_dim,
@@ -367,6 +370,9 @@ class Experiment_on_data:
                                    use_edgnn = self.exp_cfg.use_edgnn)
 
         if exp_config.load_dir:
+            self.exp_cfg.load_dir = exp_config.load_dir
+            self.exp_cfg.policy_model=exp_config.policy_model
+            self.exp_cfg.embedding_model=exp_config.embedding_model
             self.agent.policy.load_state_dict(torch.load(os.path.join(self.logdir, exp_config.policy_model)))
             self.agent.embedding.load_state_dict(torch.load(os.path.join(self.logdir, exp_config.embedding_model)))
 
@@ -492,7 +498,7 @@ class Experiment_on_data:
 
         return record
 
-    def test(self, para, max_num_of_tests):
+    def test(self, para, max_num_of_tests, test_repeat, num_of_tune, noise):
         if para is None:
             try:
                 test_networks, test_programs = pickle.load(open(os.path.join(self.logdir, 'eval_data.pkl'), 'rb'))
@@ -513,6 +519,7 @@ class Experiment_on_data:
         self.eval_env = PlacementEnv(test_networks, test_programs, self.exp_cfg.memory_capacity)
 
         set = list(itertools.product(list(range(len(test_networks))), list(range(len(test_programs))), para['testing']['init_mapping']))
+        np.random.seed(self.seed)
         np.random.shuffle(set)
         if len(set) > max_num_of_tests:
             set = set[:max_num_of_tests]
@@ -521,7 +528,12 @@ class Experiment_on_data:
         self.test_init_seeds = [l[2] for l in set]
 
         run_data = {
+            'policy_para': self.exp_cfg.policy_model,
+            'embedding_para': self.exp_cfg.embedding_model,
             'num_of_test_cases': len(set),
+            'num_of_repeat': test_repeat,
+            'num_of_tune': num_of_tune,
+            'noise': noise,
             'test_sequence': set,
             'data_para': para
         }
@@ -536,9 +548,9 @@ class Experiment_on_data:
             print('===========================================================================')
             print(f"RUNNING {self.exp_cfg.num_testing_cases_repeat} testing episodes for network {network_id}/program {program_id} ({i+1}/{len(set)}).")
             run_episodes(self.eval_env, self.agent,
-                         [program_id] * self.exp_cfg.num_testing_cases_repeat,
-                         [network_id] * self.exp_cfg.num_testing_cases_repeat,
-                         [seed] * self.exp_cfg.num_testing_cases_repeat,
+                         [program_id] * test_repeat,
+                         [network_id] * test_repeat,
+                         [seed] * test_repeat,
                          device=self.device,
                          use_placeto=self.exp_cfg.use_placeto,
                          use_full_graph=not self.exp_cfg.use_op_selection,
@@ -548,14 +560,14 @@ class Experiment_on_data:
                          save_data=True,
                          save_dir=logdir,
                          save_name=f'test_program_{program_id}_network_{network_id}_seed_{seed}',
-                         noise=self.exp_cfg.noise)
+                         noise=noise)
 
-            if self.exp_cfg.num_tuning_episodes:
-                print(f"RUNNING {self.exp_cfg.num_tuning_episodes} tuning episodes for network {network_id}/program {program_id}.")
+            if num_of_tune>0:
+                print(f"RUNNING {num_of_tune} tuning episodes for network {network_id}/program {program_id}.")
                 run_episodes(self.eval_env, self.agent,
-                             [program_id] * self.exp_cfg.num_tuning_episodes,
-                             [network_id] * self.exp_cfg.num_tuning_episodes,
-                             [seed] * self.exp_cfg.num_tuning_episodes,
+                             [program_id] * num_of_tune,
+                             [network_id] * num_of_tune,
+                             [seed] * num_of_tune,
                              device=self.device,
                              use_placeto=self.exp_cfg.use_placeto,
                              use_full_graph=not self.exp_cfg.use_op_selection,
@@ -565,13 +577,13 @@ class Experiment_on_data:
                              save_data=True,
                              save_dir=logdir,
                              save_name=f'tune_program_{program_id}_network_{network_id}_seed_{seed}',
-                             noise=self.exp_cfg.noise)
+                             noise=noise)
 
                 print(f"RUNNING {self.exp_cfg.num_testing_cases_repeat} testing episodes for network {network_id}/program {program_id} after tuned.")
                 run_episodes(self.eval_env, self.agent,
-                             [program_id] * self.exp_cfg.num_testing_cases_repeat,
-                             [network_id] * self.exp_cfg.num_testing_cases_repeat,
-                             [seed] * self.exp_cfg.num_testing_cases_repeat,
+                             [program_id] * test_repeat,
+                             [network_id] * test_repeat,
+                             [seed] * test_repeat,
                              device=self.device,
                              use_placeto=self.exp_cfg.use_placeto,
                              use_full_graph=not self.exp_cfg.use_op_selection,
@@ -581,4 +593,4 @@ class Experiment_on_data:
                              save_data=True,
                              save_dir=logdir,
                              save_name=f'test_program_{program_id}_network_{network_id}_seed_{seed}_tuned',
-                             noise=self.exp_cfg.noise)
+                             noise=noise)

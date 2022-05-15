@@ -188,4 +188,4 @@ if __name__ == '__main__':
     if exp_cfg.train:
         experiment.train()
     if exp_cfg.test:
-        experiment.test(exp_cfg.test_para, exp_cfg.num_testing_cases)
+        experiment.test(exp_cfg.test_para, exp_cfg.num_testing_cases, exp_cfg.num_testing_cases_repeat, exp_cfg.num_tuning_episodes, exp_cfg.noise)
