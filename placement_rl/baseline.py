@@ -66,7 +66,7 @@ def heft(program, network, constraints):
                     if est >= slot[0] and est+comp_time<= slot[1]:
                         eft[dev] = [est, est + comp_time]
                         break
-                    if slot[0] > np.Inf and (slot[0] + comp_time < slot[1]):
+                    if est <=slot[0] and (slot[0] + comp_time < slot[1]):
                         eft[dev] = [slot[0], slot[0] + comp_time]
                         break
 
