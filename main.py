@@ -138,7 +138,7 @@ def get_args():
                         help='The number of training episodes between two evaluations (default: 5)')
 
     parser.add_argument('--num_testing_cases',
-                        default=200,
+                        default=500,
                         type=int,
                         help='max number of testing cases (default: 200)')
 
