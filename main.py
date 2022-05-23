@@ -140,7 +140,7 @@ def get_args():
     parser.add_argument('--num_testing_cases',
                         default=500,
                         type=int,
-                        help='max number of testing cases (default: 200)')
+                        help='max number of testing cases (default: 500)')
 
     parser.add_argument('--num_testing_cases_repeat',
                         default=2,
@@ -179,7 +179,7 @@ def get_args():
     parser.add_argument(
         '--radial_k',
         type = int,
-        default = 8,
+        default = 3,
         help = 'Number of layers for radial (default: 8)')
 
     parser.add_argument(
@@ -199,4 +199,5 @@ if __name__ == '__main__':
     if exp_cfg.train:
         experiment.train()
     if exp_cfg.test:
-        experiment.test(exp_cfg.test_para, exp_cfg.num_testing_cases, exp_cfg.num_testing_cases_repeat, exp_cfg.num_tuning_episodes, exp_cfg.noise)
+        experiment.test(exp_cfg.test_para, exp_cfg.num_testing_cases, exp_cfg.num_testing_cases_repeat, exp_cfg.num_tuning_episodes,
+                        exp_cfg.noise, exp_cfg.samples_to_ops_ratio)

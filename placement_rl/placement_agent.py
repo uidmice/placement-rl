@@ -4,6 +4,7 @@ import torch.nn as nn
 from torch.nn import Linear
 import torch.nn.functional as F
 import dgl
+import dgl.function as fn
 import math
 import pdb
 
@@ -82,16 +83,12 @@ class MPLayer(nn.Module):
                  out_dim,
                  device):
         super(MPLayer, self).__init__()
-        self.node_dim = node_dim
-        self.edge_dim = edge_dim
-        self.out_dim = out_dim
-        self.device = device
 
         self.pre_layer = FNN(node_dim + edge_dim, [], node_dim + edge_dim).to(device)
-        self.update_layer = FNN(2 * node_dim + edge_dim, [], out_dim).to(device)
+        self.update_layer = FNN(node_dim + edge_dim, [], out_dim).to(device)
 
     def msg_func(self, edges):
-        msg = F.relu(self.pre_layer(torch.cat([edges.src['x'], edges.data['x']], dim=1)))
+        msg = F.relu(self.pre_layer(torch.cat([edges.src['y'], edges.data['x']], dim=1)))
         return {'m': msg}
 
     def reduce_func(self, nodes):
@@ -99,33 +96,31 @@ class MPLayer(nn.Module):
         return {'z': z}
 
     def node_update(self, nodes):
-        h = torch.cat([nodes.data['x'],
-                       nodes.data['z']],
-                      dim=1)
-        h = self.update_layer(h)
-        return {'h': F.relu(h)}
+        h = F.relu(self.update_layer(nodes.data['z'])) + nodes.data['y']
+        return {'y': h}
 
     def forward(self, g,  reverse):
-        g.ndata['z'] = torch.rand(g.num_nodes(), self.node_dim + self.edge_dim, device=self.device)
-        dgl.prop_nodes_topo(g, self.msg_func,
-                            self.reduce_func,
-                            reverse,
-                            self.node_update)
-        h = g.ndata.pop('h')
+        dgl.prop_nodes_topo(g, self.msg_func, fn.mean('m', 'z'), reverse, self.node_update)
+        h = g.ndata.pop('y')
         return h
 
-class OpNet(nn.Module):
+class GiPHEmbedding(nn.Module):
     def __init__(self, node_dim, edge_dim, out_dim, device):
-        super(OpNet, self).__init__()
+        super(GiPHEmbedding, self).__init__()
         self.node_dim = node_dim
         self.out_dim = out_dim
         self.edge_dim = edge_dim
 
-        self.fmp = MPLayer(node_dim, edge_dim, out_dim//2, device)
-        self.bmp = MPLayer(node_dim, edge_dim, out_dim//2, device)
+        self.fmp = MPLayer(out_dim//2, edge_dim, out_dim//2, device)
+        self.bmp = MPLayer(out_dim//2, edge_dim, out_dim//2, device)
+
+        self.node_transform = FNN(node_dim, [node_dim], out_dim//2).to(device)
+
 
     def forward(self,  g):
+        g.ndata['y'] = self.node_transform(g.ndata['x'].clone())
         hf = self.fmp(g, False)
+        g.ndata['y'] = self.node_transform(g.ndata['x'].clone())
         hb = self.bmp(g, True)
         return torch.cat([hf, hb], dim=1)
 
@@ -279,7 +274,7 @@ class PlacementAgent:
         self.device = device
 
         if not use_edgnn:
-            self.embedding = OpNet(node_dim, edge_dim, out_dim, device=device)
+            self.embedding = GiPHEmbedding(node_dim, edge_dim, out_dim, device=device)
         else:
             self.embedding = EdGNN(node_dim, edge_dim, out_dim, device)
 

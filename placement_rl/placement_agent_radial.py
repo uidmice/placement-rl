@@ -47,35 +47,28 @@ class Aggregator(nn.Module):
         self.reverse = reverse
 
         self.pre_layer = FNN(node_dim + edge_dim, [], node_dim + edge_dim).to(device)
-        self.update_layer = FNN(2 * node_dim + edge_dim, [], out_dim).to(device)
+        self.update_layer = FNN(node_dim + edge_dim, [], out_dim).to(device)
 
 
     def msg_func(self, edges):
         msg = F.relu(self.pre_layer(torch.cat([edges.src['y'], edges.data['x']], dim=1)))
         return {'m': msg}
 
-    def reduce_func(self, nodes):
-        z = torch.sum((nodes.mailbox['m']), 1)
-        return {'z': z}
 
     def node_update(self, nodes):
-        h = torch.cat([nodes.data['y'],
-                       nodes.data['z']],
-                      dim=1)
-        h = self.update_layer(h)
-        return {'h': F.relu(h)}
+        h = F.relu(self.update_layer(nodes.data['z']))
+        return {'h': h}
 
     def forward(self, g):
         if self.reverse:
             g = dgl.reverse(g, copy_edata=True)
-        g.update_all(self.msg_func, self.reduce_func, self.node_update)
+        g.update_all(self.msg_func, fn.mean('m', 'z'), self.node_update)
         h = g.ndata.pop('h')
         return h
 
-
-class GiPHEmbedding(nn.Module):
+class GiPHEmbedding_radial(nn.Module):
     def __init__(self, node_dim, edge_dim, out_dim, k, device):
-        super(GiPHEmbedding, self).__init__()
+        super(GiPHEmbedding_radial, self).__init__()
 
         self.node_dim = node_dim
         self.edge_dim = edge_dim
@@ -142,10 +135,10 @@ class PlacementAgent_Radial:
 
         self.device = device
 
-        self.embedding = GiPHEmbedding(node_dim, edge_dim, out_dim//2,k, device=device)
+        self.embedding = GiPHEmbedding_radial(node_dim, edge_dim, out_dim, k, device=device)
 
 
-        self.policy = SoftmaxActor(out_dim, device, hidden_dim)
+        self.policy = SoftmaxActor(2 * out_dim, device, hidden_dim)
         self.optim = torch.optim.Adam(list(self.embedding.parameters()) + list(self.policy.parameters()), lr=lr)
         self.log_probs = []
 
@@ -174,7 +167,7 @@ class PlacementAgent_Radial:
         est = {}
         parents = program.op_parents[op]
         end_time = np.array([np.average(G_stats.nodes[p]['end_time']) for p in parents])
-        if len(parents) == 0:
+        if not parents:
             return random.choice(options)
         for dev in options:
             c_time = np.array([communication_latency(program, network, p, op, map[p], dev) for p in parents])

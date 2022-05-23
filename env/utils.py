@@ -176,6 +176,11 @@ def generate_network(n_devices,
                 device_constraints[i].append(j)
         if len(device_constraints[i]) == 0:
             device_constraints[i].append(np.random.choice(range(num_types)))
+    types = set(range(num_types)) - set().union(*[device_constraints[i] for i in range(n_devices)])
+    for t in types:
+        dev_set = np.random.choice(n_devices, int(n_devices * type_prob), replace=False).tolist()
+        for d in dev_set:
+            device_constraints[d].append(t)
 
     network = {}
     network["delay"] = delay

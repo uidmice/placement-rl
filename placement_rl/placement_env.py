@@ -70,7 +70,7 @@ class PlacementEnv:
         constraints = self.placement_constraints[program_id][network_id]
         network = self.networks[network_id]
         program = self.programs[program_id]
-        for n in program.P.nodes:
+        for n in range(program.n_operators):
             c = program.P.nodes[n]['h_constraint']
             constraints.append([k[0] for k in filter(lambda elem: c in elem[1], network.device_constraints.items())])
 

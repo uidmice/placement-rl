@@ -6,7 +6,7 @@ from heft.core import schedule
 
 def get_placement_constraints(program, network):
     constraints = []
-    for n in program.P.nodes:
+    for n in range(program.n_operators):
         c = program.P.nodes[n]['h_constraint']
         constraints.append([k[0] for k in filter(lambda elem: c in elem[1], network.device_constraints.items())])
     return constraints
@@ -16,7 +16,7 @@ def random_placement(program, network, constraints, number_mappings=100, noise=0
     for i in range(number_mappings):
         mapping = [np.random.choice(constraints[i]) for i in range(program.n_operators)]
         latencies[i] = evaluate(mapping, program, network, noise, repeat=3)
-    return map, latencies
+    return mapping, latencies
 
 
 def heft(program, network, constraints):

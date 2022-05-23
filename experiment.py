@@ -506,7 +506,7 @@ class Experiment_on_data:
 
         return record
 
-    def test(self, para, max_num_of_tests, test_repeat, num_of_tune, noise):
+    def test(self, para, max_num_of_tests, test_repeat, num_of_tune, noise, sample_ratio):
         if para is None:
             try:
                 test_networks, test_programs = pickle.load(open(os.path.join(self.logdir, 'eval_data.pkl'), 'rb'))
@@ -563,7 +563,7 @@ class Experiment_on_data:
                          use_placeto=self.exp_cfg.use_placeto,
                          use_full_graph=not self.exp_cfg.use_op_selection,
                          explore=True,
-                         samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
+                         samples_to_ops_ratio=sample_ratio,
                          update_policy=False,
                          save_data=True,
                          save_dir=logdir,
@@ -580,7 +580,7 @@ class Experiment_on_data:
                              use_placeto=self.exp_cfg.use_placeto,
                              use_full_graph=not self.exp_cfg.use_op_selection,
                              explore=True,
-                             samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
+                             samples_to_ops_ratio=sample_ratio,
                              update_policy=True,
                              save_data=True,
                              save_dir=logdir,
@@ -596,7 +596,7 @@ class Experiment_on_data:
                              use_placeto=self.exp_cfg.use_placeto,
                              use_full_graph=not self.exp_cfg.use_op_selection,
                              explore=True,
-                             samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
+                             samples_to_ops_ratio=sample_ratio,
                              update_policy=False,
                              save_data=True,
                              save_dir=logdir,
