@@ -15,118 +15,10 @@ from env.utils import *
 
 from placement_rl.placement_env import PlacementEnv
 from placement_rl.placement_agent import PlacementAgent
-from placement_rl.placement_agent_radial import PlacementAgent_Radial
 from placement_rl.placeto_agent import PlaceToAgent
 
 import os
 import pickle
-
-def load_data_from_dir(network_path, program_path, exp_cfg):
-    network_para_train = exp_cfg.data_parameters['training']['networks']
-    program_para_train = exp_cfg.data_parameters['training']['programs']
-    network_para_test = exp_cfg.data_parameters['testing']['networks']
-    program_para_test = exp_cfg.data_parameters['testing']['programs']
-
-    #load train data
-    train_networks = []
-    train_network_para = {}
-    idx = 0
-    for para in network_para_train:
-        network_fns_train = network_fn_filter(network_path,
-                                    n_devices=para['num_of_devices'],
-                                    type_probs=para['constraint_prob'],
-                                   avg_speeds=para['compute_speed'],
-                                   avg_bws=para['bw'],
-                                   avg_delays=para['delay'],
-                                   b_bws=para['beta_bw'],
-                                   b_speeds=para['beta_speed'],
-                                   num_types=[exp_cfg.data_parameters['num_of_types']])
-        for fn in network_fns_train:
-            networks = load_pickle(os.path.join(network_path, fn))
-            for seed in para['seed']:
-                net_data = networks[seed]
-                train_networks.append(FullNetwork(net_data['delay'], net_data['comm_speed'], net_data['speed'],
-                                                  net_data['device_constraints']))
-                train_network_para[idx] = net_data['para']
-                idx += 1
-
-
-    train_programs = []
-    train_program_para = {}
-    idx = 0
-    for para in program_para_train:
-        program_fns_train = program_fn_filter(program_path,
-                                          vs=para['v'],
-                                          alphas=para['alpha'],
-                                          connect_probs=para['conn_prob'],
-                                          avg_computes=para['compute'],
-                                          avg_bytes=para['bytes'],
-                                          b_comps=para['bete_compute'],
-                                          b_comms=para['beta_byte'],
-                                          num_types=[exp_cfg.data_parameters['num_of_types']])
-
-
-
-
-        for fn in program_fns_train:
-            programs = load_pickle(os.path.join(program_path, fn))
-            for seed in para['seed']:
-                G = programs[seed]
-                train_programs.append(Program(G))
-                train_program_para[idx] = G.graph
-                idx += 1
-
-
-    # load test data
-    test_networks = []
-    test_network_para = {}
-    idx = 0
-    for para in network_para_test:
-        network_fns_train = network_fn_filter(network_path,
-                                              n_devices=para['num_of_devices'],
-                                              type_probs=para['constraint_prob'],
-                                              avg_speeds=para['compute_speed'],
-                                              avg_bws=para['bw'],
-                                              avg_delays=para['delay'],
-                                              b_bws=para['beta_bw'],
-                                              b_speeds=para['beta_speed'],
-                                              num_types=[exp_cfg.data_parameters['num_of_types']])
-        for fn in network_fns_train:
-            networks = load_pickle(os.path.join(network_path, fn))
-            for seed in para['seed']:
-                net_data = networks[seed]
-                train_networks.append(FullNetwork(net_data['delay'], net_data['comm_speed'], net_data['speed'],
-                                                  net_data['device_constraints']))
-                train_network_para[idx] = net_data['para']
-                idx += 1
-
-    test_programs = []
-    test_program_para = {}
-    idx = 0
-    for para in program_para_test:
-        program_fns_train = program_fn_filter(program_path,
-                                              vs=para['v'],
-                                              alphas=para['alpha'],
-                                              connect_probs=para['conn_prob'],
-                                              avg_computes=para['compute'],
-                                              avg_bytes=para['bytes'],
-                                              b_comps=para['bete_compute'],
-                                              b_comms=para['beta_byte'],
-                                              num_types=[exp_cfg.data_parameters['num_of_types']])
-
-        for fn in program_fns_train:
-            programs = load_pickle(os.path.join(program_path, fn))
-            for seed in para['seed']:
-                G = programs[seed]
-                train_programs.append(Program(G))
-                train_program_para[idx] = G.graph
-                idx += 1
-
-    para_set = {'test_program': test_program_para,
-                'test_network': test_network_para,
-                'train_program': train_program_para,
-                'train_network': train_network_para}
-    return train_networks, train_programs, test_networks, test_programs, para_set
 
 def networks_from_para(network_para, num_types):
     rt = []
@@ -188,6 +80,7 @@ def run_episodes(env,
                  device,
                  use_full_graph=True,
                  use_placeto=False,
+                 use_edge=True,
                  explore=True,
                  samples_to_ops_ratio=2,
                  update_policy=True,
@@ -262,7 +155,10 @@ def run_episodes(env,
                 action = agent.dev_selection(g, program, s, mask)
 
             elif use_full_graph:
-                g = env.get_full_graph(program_id, network_id, cur_mapping, G_stats, device, path, False, last_g=g, last_action=last_action).to(device)
+                if not use_edge:
+                    g = env.get_no_edge_graph(program_id, network_id, cur_mapping, G_stats, device, path, False).to(device)
+                else:
+                    g = env.get_full_graph(program_id, network_id, cur_mapping, G_stats, device, path, False, last_g=g, last_action=last_action).to(device)
                 if explore:
                     cur_nodes = [node_dict[o][cur_mapping[o]] for o in node_dict]
                     mask[:] = 1
@@ -350,10 +246,6 @@ class Experiment_on_data:
 
         print("LOGDIR: ", self.logdir)
 
-        if not hasattr(self.exp_cfg, 'use_edgnn'):
-            setattr(self.exp_cfg, 'use_edgnn', False)
-        if not hasattr(self.exp_cfg, 'use_radial_mp'):
-            setattr(self.exp_cfg, 'use_radial_mp', False)
 
         if self.exp_cfg.use_placeto:
             self.agent = PlaceToAgent(len(PlacementEnv.PLACETO_FEATURES),
@@ -364,16 +256,21 @@ class Experiment_on_data:
                                   hidden_dim=self.exp_cfg.hidden_dim,
                                   lr=self.exp_cfg.lr,
                                   gamma=self.exp_cfg.gamma)
-
-        elif self.exp_cfg.use_radial_mp:
-            self.agent = PlacementAgent_Radial(PlacementEnv.get_node_feature_dim(), PlacementEnv.get_edge_feature_dim(),
-                                               self.exp_cfg.output_dim, self.device, k=self.exp_cfg.radial_k)
+        #
+        # elif self.exp_cfg.use_radial_mp:
+        #     self.agent = PlacementAgent_Radial(PlacementEnv.get_node_feature_dim(), PlacementEnv.get_edge_feature_dim(),
+        #                                        self.exp_cfg.output_dim, self.device,
+        #                                        hidden_dim=self.exp_cfg.hidden_dim, lr=self.exp_cfg.lr, gamma=self.exp_cfg.gamma,
+        #                                        k=self.exp_cfg.radial_k)
         else:
             self.agent = PlacementAgent(PlacementEnv.get_node_feature_dim(), PlacementEnv.get_edge_feature_dim(),
                                    self.exp_cfg.output_dim,
                                    device=self.device,
                                    hidden_dim=self.exp_cfg.hidden_dim, lr=self.exp_cfg.lr, gamma=self.exp_cfg.gamma,
-                                   use_edgnn = self.exp_cfg.use_edgnn)
+                                   use_radial_mp = self.exp_cfg.use_radial_mp,
+                                   use_edge=self.exp_cfg.use_edge,
+                                   use_graphsage=self.exp_cfg.use_graphsage,
+                                   use_embedding=self.exp_cfg.use_embedding)
 
 
 
@@ -397,12 +294,7 @@ class Experiment_on_data:
     def init(self):
         random.seed(self.seed)
 
-        if self.exp_cfg.load_data:
-            network_path = self.exp_cfg.device_net_path
-            op_path = self.exp_cfg.op_net_path
-            train_networks, train_programs, eval_networks, eval_programs, para_set = load_data_from_dir(network_path, op_path, self.exp_cfg)
-        else:
-            train_networks, train_programs, eval_networks, eval_programs = generate_data(self.exp_cfg.data_parameters)
+        train_networks, train_programs, eval_networks, eval_programs = generate_data(self.exp_cfg.data_parameters)
 
         self.train_networks = train_networks
         self.train_programs = train_programs
@@ -419,9 +311,10 @@ class Experiment_on_data:
 
     def train(self):
         full_graph = not self.exp_cfg.use_op_selection
+        use_edge = self.exp_cfg.use_edge and not self.exp_cfg.use_graphsage
         record = []
         eval_records = []
-        cnt = 0
+        cnt = len(self.train_sequence)//self.exp_cfg.eval_frequency
 
         count_down = 5
 
@@ -445,6 +338,7 @@ class Experiment_on_data:
                                         device=self.device,
                                         use_placeto=self.exp_cfg.use_placeto,
                                         use_full_graph=full_graph,
+                                        use_edge=use_edge,
                                         samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
                                         update_policy=True,
                                         save_data=False,
@@ -462,6 +356,7 @@ class Experiment_on_data:
                                            device=self.device,
                                            use_placeto=self.exp_cfg.use_placeto,
                                            use_full_graph=full_graph,
+                                           use_edge=use_edge,
                                            samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
                                            update_policy=False,
                                            save_data=False,
@@ -498,11 +393,19 @@ class Experiment_on_data:
         torch.save(self.agent.embedding.state_dict(),
                    os.path.join(self.logdir, f'embedding_{len(self.train_sequence)}.pk'))
 
-        pickle.dump(record, open(os.path.join(self.logdir, "train.pk"), "ab"))
+        if os.path.isfile(os.path.join(self.logdir, "train.pk")):
+            r = pickle.load(open(os.path.join(self.logdir, "train.pk"), 'rb'))
+            r.extend(record)
+            record = r
+        pickle.dump(record, open(os.path.join(self.logdir, "train.pk"), "wb"))
         torch.save(self.agent.policy.state_dict(), os.path.join(self.logdir, f'policy.pk'))
         torch.save(self.agent.embedding.state_dict(), os.path.join(self.logdir, f'embedding.pk'))
         if self.exp_cfg.eval:
-            pickle.dump(eval_records, open(os.path.join(self.logdir, "eval.pk"), "ab"))
+            if os.path.isfile(os.path.join(self.logdir, "eval.pk")):
+                r = pickle.load(open(os.path.join(self.logdir, "eval.pk"), 'rb'))
+                r.extend(eval_records)
+                eval_records = r
+            pickle.dump(eval_records, open(os.path.join(self.logdir, "eval.pk"), "wb"))
 
         return record
 
@@ -550,6 +453,8 @@ class Experiment_on_data:
         torch.save(self.agent.policy.state_dict(), os.path.join(logdir, f'policy.pk'))
         torch.save(self.agent.embedding.state_dict(), os.path.join(logdir, f'embedding.pk'))
 
+        use_edge = self.exp_cfg.use_edge and not self.exp_cfg.use_graphsage
+
         for seed, program_id, network_id, i in zip(self.test_init_seeds, self.test_program_ids, self.test_network_ids, range(len(set))):
             self.agent.policy.load_state_dict(torch.load(os.path.join(logdir, 'policy.pk')))
             self.agent.embedding.load_state_dict(torch.load(os.path.join(logdir, 'embedding.pk')))
@@ -562,6 +467,7 @@ class Experiment_on_data:
                          device=self.device,
                          use_placeto=self.exp_cfg.use_placeto,
                          use_full_graph=not self.exp_cfg.use_op_selection,
+                         use_edge=use_edge,
                          explore=True,
                          samples_to_ops_ratio=sample_ratio,
                          update_policy=False,
@@ -579,6 +485,7 @@ class Experiment_on_data:
                              device=self.device,
                              use_placeto=self.exp_cfg.use_placeto,
                              use_full_graph=not self.exp_cfg.use_op_selection,
+                             use_edge=use_edge,
                              explore=True,
                              samples_to_ops_ratio=sample_ratio,
                              update_policy=True,
@@ -595,6 +502,7 @@ class Experiment_on_data:
                              device=self.device,
                              use_placeto=self.exp_cfg.use_placeto,
                              use_full_graph=not self.exp_cfg.use_op_selection,
+                             use_edge=use_edge,
                              explore=True,
                              samples_to_ops_ratio=sample_ratio,
                              update_policy=False,

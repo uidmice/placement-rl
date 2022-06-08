@@ -37,28 +37,18 @@ def get_args():
                         type=int,
                         help='random seed for experiments')
 ### Dataset global ###
-    parser.add_argument("--device_net_path",
-                        default = "./data/device_networks",
-                        help="input directory for device network params")
-
-    parser.add_argument("--op_net_path",
-                        default = "./data/op_networks",
-                        help= "input directory for operator network params")
-
     parser.add_argument("-p", "--data_parameters",
                         type=validate_file,
                         default='parameters/multiple_networks.txt',
                         help="json text file specifying the training/testing dataset parameters", metavar="FILE")
 
-    parser.add_argument('--disable_train',
-                        action='store_false',
-                        dest='train',
-                        help='disable training')
+    parser.add_argument('--train',
+                        action='store_true',
+                        help='train model')
 
-    parser.add_argument('--disable_test',
-                        action='store_false',
-                        dest='test',
-                        help='disable testing at the end of training')
+    parser.add_argument('--test',
+                        action='store_true',
+                        help='test model (run_folder must be given at the same time)')
 
     parser.add_argument('--run_folder',
                         type=validate_dir,
@@ -96,11 +86,6 @@ def get_args():
                         type=int,
                         help="hidden dimension for the network (default 64)")
 
-    parser.add_argument('--enable_dataset_loading',
-                        action='store_true',
-                        dest='load_data',
-                        help='enable dataset loading (training/testing data will not be generated)')
-
     parser.add_argument('--samples_to_ops_ratio',
                         default=2,
                         type=int,
@@ -112,7 +97,7 @@ def get_args():
                         help='max number of training episodes (default: 200)')
 
     parser.add_argument('--min_num_training_episodes',
-                        default=50,
+                        default=200,
                         type=int,
                         help='min number of training episodes (default: 50)')
 
@@ -155,14 +140,15 @@ def get_args():
 
 ### baselines ###
     parser.add_argument(
+        '--disable_embedding',
+        dest='use_embedding',
+        action='store_false',
+        help='Disable embedding')
+
+    parser.add_argument(
         '--use_placeto',
         action='store_true',
         help='Use placeto')
-
-    parser.add_argument(
-        '--use_edgnn',
-        action='store_true',
-        help='Use edgnn')
 
     parser.add_argument(
         '--placeto_k',
@@ -180,7 +166,19 @@ def get_args():
         '--radial_k',
         type = int,
         default = 3,
-        help = 'Number of layers for radial (default: 8)')
+        help = 'Number of layers for radial (default: 3)')
+
+    parser.add_argument(
+        '--no_edge_features',
+        dest='use_edge',
+        action='store_false',
+        help='Not using edge feature'
+    )
+    parser.add_argument(
+        '--use_graphsage',
+        action='store_true',
+        help='Use GraphSAGE instead of the two-way message passing'
+    )
 
     parser.add_argument(
         '--use_rl_op_est_device',
@@ -199,5 +197,7 @@ if __name__ == '__main__':
     if exp_cfg.train:
         experiment.train()
     if exp_cfg.test:
+        if not exp_cfg.load_dir:
+            raise Exception('--run_folder is not provided for testing')
         experiment.test(exp_cfg.test_para, exp_cfg.num_testing_cases, exp_cfg.num_testing_cases_repeat, exp_cfg.num_tuning_episodes,
                         exp_cfg.noise, exp_cfg.samples_to_ops_ratio)

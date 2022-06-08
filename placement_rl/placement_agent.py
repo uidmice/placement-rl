@@ -1,12 +1,11 @@
-import numpy as np
-import torch
 import torch.nn as nn
 from torch.nn import Linear
 import torch.nn.functional as F
 import dgl
 import dgl.function as fn
+from dgl.nn import SAGEConv
+
 import math
-import pdb
 
 
 from placement_rl.primative_nn import FNN
@@ -14,47 +13,6 @@ from env.latency import *
 
 epsilon = 1e-6
 torch.autograd.set_detect_anomaly(True)
-# # Soft update of target critic network
-# def soft_update(target, source, tau):
-#     for target_param, param in zip(target.parameters(), source.parameters()):
-#         target_param.data.copy_(target_param.data * (1.0 - tau) +
-#                                 param.data * tau)
-#
-# # Hard update of target critic network
-# def hard_update(target, source):
-#     for target_param, param in zip(target.parameters(), source.parameters()):
-#         target_param.data.copy_(param.data)
-
-GNN_MSG_KEY = 'm'
-GNN_NODE_FEAT_IN_KEY = 'hn_in'
-GNN_NODE_FEAT_OUT_KEY = 'hn_out'
-GNN_EDGE_FEAT_KEY = 'he'
-GNN_AGG_MSG_KEY = 'h_msg'
-GNN_NODE_NORM = 'norm'
-GNN_NODE_LABELS_KEY = 'hnl'
-GNN_NODE_ATTS_KEY = 'hna'
-GNN_EDGE_LABELS_KEY = 'hel'
-GNN_EDGE_NORM = 'norm'
-
-GRAPH_CLASSIFICATION = 'graph_classification'
-NODE_CLASSIFICATION = 'node_classification'
-
-AIFB = 'aifb'
-MUTAG = 'mutag'
-MUTAGENICITY = 'mutagenicity'
-PTC_FM = 'ptc_fm'
-PTC_FR = 'ptc_fr'
-PTC_MM = 'ptc_mm'
-PTC_MR = 'ptc_mr'
-
-
-def reset_graph_features(g):
-    keys = [GNN_NODE_FEAT_IN_KEY, GNN_AGG_MSG_KEY, GNN_MSG_KEY, GNN_NODE_FEAT_OUT_KEY]
-    for key in keys:
-        if key in g.ndata:
-            del g.ndata[key]
-    if GNN_EDGE_FEAT_KEY in g.edata:
-        del g.edata[GNN_EDGE_FEAT_KEY]
 
 def reset(nn):
     def _reset(item):
@@ -75,7 +33,7 @@ def init_weights(m):
         if m.bias is not None:
             m.bias.data.uniform_(-stdv, stdv)
 
-
+######### GiPH message passing ##########
 class MPLayer(nn.Module):
     def __init__(self,
                  node_dim,
@@ -125,113 +83,136 @@ class GiPHEmbedding(nn.Module):
         return torch.cat([hf, hb], dim=1)
 
 
-class edGNNLayer(nn.Module):
+######### GiPH (no edge) message passing ##########
+class MPLayer_NE(nn.Module):
     def __init__(self,
                  node_dim,
-                 edge_dim,
-                 out_feats,
-                 activation=None,
-                 bias=None):
+                 out_dim,
+                 device):
+        super(MPLayer_NE, self).__init__()
 
-        super(edGNNLayer, self).__init__()
+        self.pre_layer = FNN(node_dim, [], node_dim).to(device)
+        self.update_layer = FNN(node_dim, [], out_dim).to(device)
 
-        # 1. set parameters
-        self.node_dim = node_dim
-        self.out_feats = out_feats
-        self.activation = activation
-        self.edge_dim = edge_dim
-        self.bias = bias
+    def msg_func(self, edges):
+        msg = F.relu(self.pre_layer(edges.src['y']))
+        return {'m': msg}
 
-        # 2. create variables
-        self._build_parameters()
-
-        # 3. initialize variables
-        self.apply(init_weights)
-
-    def reset_parameters(self):
-        reset(self.linear)
-
-    def _build_parameters(self):
-        input_dim = 2 * self.node_dim
-        if self.edge_dim is not None:
-            input_dim = input_dim + self.edge_dim
-
-        self.linear = nn.Linear(input_dim, self.out_feats, bias=self.bias)
-
-
-    def gnn_msg(self, edges):
-        if self.g.edata is not None:
-            msg = torch.cat([edges.src[GNN_NODE_FEAT_IN_KEY],
-                             edges.data[GNN_EDGE_FEAT_KEY]],
-                            dim=1)
-        else:
-            msg = edges.src[GNN_NODE_FEAT_IN_KEY]
-        return {GNN_MSG_KEY: msg}
-
-    def gnn_reduce(self, nodes):
-        accum = torch.sum((nodes.mailbox[GNN_MSG_KEY]), 1)
-        return {GNN_AGG_MSG_KEY: accum}
+    def reduce_func(self, nodes):
+        z = torch.sum((nodes.mailbox['m']), 1)
+        return {'z': z}
 
     def node_update(self, nodes):
-        h = torch.cat([nodes.data[GNN_NODE_FEAT_IN_KEY],
-                       nodes.data[GNN_AGG_MSG_KEY]],
-                      dim=1)
-        h = self.linear(h)
+        h = F.relu(self.update_layer(nodes.data['z'])) + nodes.data['y']
+        return {'y': h}
 
-        if self.activation:
-            h = self.activation(h)
-
-        return {GNN_NODE_FEAT_OUT_KEY: h}
-
-    def forward(self, node_features, edge_features, g):
-
-        if g is not None:
-            self.g = g
-
-        # 1. clean graph features
-        reset_graph_features(self.g)
-
-        # 2. set current iteration features
-        self.g.ndata[GNN_NODE_FEAT_IN_KEY] = node_features
-        self.g.edata[GNN_EDGE_FEAT_KEY] = edge_features
-
-        # 3. aggregate messages
-        self.g.update_all(self.gnn_msg,
-                          self.gnn_reduce,
-                          self.node_update)
-
-        h = self.g.ndata.pop(GNN_NODE_FEAT_OUT_KEY)
+    def forward(self, g,  reverse):
+        dgl.prop_nodes_topo(g, self.msg_func, fn.mean('m', 'z'), reverse, self.node_update)
+        h = g.ndata.pop('y')
         return h
 
-
-
-class EdGNN(nn.Module):
-    def __init__(self, node_dim, edge_dim, out_dim, device, hidden_dim = 128):
-        super(EdGNN, self).__init__()
+class GiPHEmbedding_NE(nn.Module):
+    def __init__(self, node_dim, out_dim, device):
+        super(GiPHEmbedding_NE, self).__init__()
         self.node_dim = node_dim
         self.out_dim = out_dim
-        self.edge_dim = edge_dim
-        self.hidden_dim = hidden_dim
-        self.device = device
 
-        self.edgnn_1 = edGNNLayer(node_dim, edge_dim, hidden_dim, nn.ReLU()).to(device)
-        self.edgnn_2 = edGNNLayer(hidden_dim, edge_dim, hidden_dim, nn.ReLU()).to(device)
-        self.edgnn_3 = edGNNLayer(hidden_dim, edge_dim, hidden_dim, nn.ReLU()).to(device)
-        self.edgnn_4 = edGNNLayer(hidden_dim, edge_dim, out_dim, None).to(device)
+        self.fmp = MPLayer_NE(out_dim//2, out_dim//2, device)
+        self.bmp = MPLayer_NE(out_dim//2, out_dim//2, device)
+
+        self.node_transform = FNN(node_dim, [node_dim], out_dim//2).to(device)
 
 
     def forward(self,  g):
-        node_feature = g.ndata['x']
-        edge_feature = g.edata['x']
+        g.ndata['y'] = self.node_transform(g.ndata['x'].clone())
+        hf = self.fmp(g, False)
+        g.ndata['y'] = self.node_transform(g.ndata['x'].clone())
+        hb = self.bmp(g, True)
+        return torch.cat([hf, hb], dim=1)
 
-        h = self.edgnn_1(node_feature, edge_feature, g)
-        h = self.edgnn_2(h, edge_feature, g)
-        h = self.edgnn_3(h, edge_feature, g)
-        h = self.edgnn_4(h, edge_feature, g)
 
+######### GraphSAGE NE ############
+class GiPHEmbedding_GraphSAGE(nn.Module):
+    def __init__(self, node_dim, hidden_dim, out_dim, device):
+        super(GiPHEmbedding_GraphSAGE, self).__init__()
+        self.node_dim = node_dim
+        self.hidden_dim = hidden_dim
+        self.out_dim = out_dim
+
+        self.conv1 = SAGEConv(node_dim, hidden_dim, 'mean').to(device)
+        self.conv2 = SAGEConv(hidden_dim, hidden_dim, 'mean').to(device)
+        self.conv3 = SAGEConv(hidden_dim, out_dim, 'mean').to(device)
+
+    def forward(self, g):
+        h = F.relu(self.conv1(g, g.ndata['x'].clone()))
+        h = F.relu(self.conv2(g, h))
+        h = self.conv3(g, h)
         return h
 
 
+######### GiPH radial message passing ############
+class Aggregator(nn.Module):
+    def __init__(self,
+                 node_dim,
+                 edge_dim,
+                 out_dim,
+                 reverse,
+                 device):
+        super(Aggregator, self).__init__()
+
+        self.reverse = reverse
+
+        self.pre_layer = FNN(node_dim + edge_dim, [], node_dim + edge_dim).to(device)
+        self.update_layer = FNN(node_dim + edge_dim, [], out_dim).to(device)
+
+
+    def msg_func(self, edges):
+        msg = F.relu(self.pre_layer(torch.cat([edges.src['y'], edges.data['x']], dim=1)))
+        return {'m': msg}
+
+
+    def node_update(self, nodes):
+        h = F.relu(self.update_layer(nodes.data['z']))
+        return {'h': h}
+
+    def forward(self, g):
+        if self.reverse:
+            g = dgl.reverse(g, copy_edata=True)
+        g.update_all(self.msg_func, fn.mean('m', 'z'), self.node_update)
+        h = g.ndata.pop('h')
+        return h
+
+class GiPHEmbedding_radial(nn.Module):
+    def __init__(self, node_dim, edge_dim, out_dim, k, device):
+        super(GiPHEmbedding_radial, self).__init__()
+
+        self.node_dim = node_dim
+        self.edge_dim = edge_dim
+        self.out_dim = out_dim
+        self.k = k
+
+        self.fpa = Aggregator(out_dim//2, edge_dim, out_dim//2, False, device).to(device)
+        self.bpa = Aggregator(out_dim//2, edge_dim, out_dim//2, True, device).to(device)
+
+        self.node_transform = FNN(node_dim, [node_dim], out_dim//2).to(device)
+
+    def forward(self, g):
+        self_trans = self.node_transform(g.ndata['x'].clone())
+        def message_pass(agg, sink):
+            g.ndata['y'] = self_trans.clone()
+            for i in range(self.k):
+                h = agg(g).clone()
+                h[sink, :] = 0
+                h = self_trans + h
+                g.ndata['y'] = h
+            return g.ndata['y']
+
+        out_fpa = message_pass(self.fpa, len(g.nodes())-1)
+        out_bpa = message_pass(self.bpa, 0)
+        return torch.cat([out_fpa, out_bpa], dim=1)
+
+
+######## actor ##############
 class SoftmaxActor(nn.Module):
     def __init__(self,
                  input_dim,
@@ -261,24 +242,38 @@ class PlacementAgent:
                  hidden_dim=32,
                  lr=0.03,
                  gamma=0.95,
-                 use_edgnn = False):
+                 use_radial_mp=False,
+                 use_edge=True,
+                 use_graphsage=False,
+                 use_embedding=True,
+                 radial_k=5):
         self.node_dim = node_dim
         self.edge_dim = edge_dim
         self.out_dim = out_dim
         self.hidden_dim = hidden_dim
-        self.use_edgnn = use_edgnn
+        self.use_embedding = use_embedding
+
+        self.use_radial_mp = use_radial_mp
+        self.radial_k = radial_k
 
         self.lr = lr
         self.gamma = gamma
 
         self.device = device
 
-        if not use_edgnn:
-            self.embedding = GiPHEmbedding(node_dim, edge_dim, out_dim, device=device)
+        if not use_edge:
+            self.embedding = GiPHEmbedding_NE(node_dim+edge_dim, out_dim, device=device)
+        elif use_radial_mp:
+            self.embedding = GiPHEmbedding_radial(node_dim, edge_dim, out_dim, radial_k, device=device)
+        elif use_graphsage:
+            self.embedding = GiPHEmbedding_GraphSAGE(node_dim + edge_dim, hidden_dim, out_dim, device)
         else:
-            self.embedding = EdGNN(node_dim, edge_dim, out_dim, device)
+            self.embedding = GiPHEmbedding(node_dim, edge_dim, out_dim, device=device)
 
-        self.policy = SoftmaxActor(out_dim, device, hidden_dim)
+        if use_embedding:
+            self.policy = SoftmaxActor(out_dim, device, hidden_dim)
+        else:
+            self.policy = SoftmaxActor(self.embedding.node_dim, device, hidden_dim)
         self.optim = torch.optim.Adam(list(self.embedding.parameters()) + list(self.policy.parameters()), lr=lr)
         self.log_probs = []
 
@@ -294,8 +289,10 @@ class PlacementAgent:
         return action.item()
 
     def op_dev_selection(self, g, action_dict, mask=None):
-        # pdb.set_trace()
-        placement_embedding = self.embedding(g)
+        if self.use_embedding:
+            placement_embedding = self.embedding(g)
+        else:
+            placement_embedding = g.ndata['x'].clone()
         probs = self.policy(placement_embedding, mask)
         m = torch.distributions.Categorical(probs=probs)
 
@@ -355,39 +352,3 @@ class PlacementAgent:
 
         del self.saved_rewards[:]
         del self.log_probs[:]
-
-# class DevNet(nn.Module):
-#     def __init__(self,
-#                  in_dim,
-#                  out_dim,
-#                  num_heads=1,
-#                  activation=None):
-#         super(DevNet, self).__init__()
-#
-#         self.in_dim = in_dim
-#         self.out_dim = out_dim
-#         self.num_heads = num_heads
-#         self.forward_layer = GATConv (in_dim, out_dim, num_heads=num_heads, activation=activation, allow_zero_in_degree=True)
-#         self.backward_layer = GATConv (in_dim, out_dim, num_heads=num_heads,activation=activation, allow_zero_in_degree=True)
-#
-#
-#     def forward(self, graph, feat, op, parallel):
-#         n = graph.batch_size
-#         if n == 1:
-#             fh = torch.mean(self.forward_layer(graph, feat), 1)[op]
-#             bh = torch.mean(self.backward_layer(dgl.reverse(graph), feat), 1)[op]
-#             para = torch.sum(feat[parallel], 0)
-#             return torch.cat([fh, bh, feat[op], para])
-#
-#         m = graph.num_nodes()//n  # number of nodes per graph
-#         idx = list(range(op, graph.num_nodes() , m))
-#         fh = torch.mean(self.forward_layer(graph, feat), 1)[idx]
-#         bh = torch.mean(self.backward_layer(dgl.reverse(graph), feat), 1)[idx]
-#
-#         para = [torch.sum(feat[parallel], 0)]
-#         for i in range(m, graph.num_nodes(), m):
-#             para_idx = [a + i for a in parallel]
-#             para.append(torch.sum(feat[para_idx], 0))
-#
-#         para = torch.stack(para)
-#         return torch.cat([fh, bh, feat[idx], para], dim=1)

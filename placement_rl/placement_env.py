@@ -8,7 +8,10 @@ from placement_rl.memory_buffer import Buffer
 
 
 class PlacementEnv:
-    NODE_FEATURES = ['compute', 'comp_rate', 'comp_time', 'criticality', 'start_time_potential']
+    NODE_FEATURES = ['compute', 'comp_rate', 'comp_time', 'start_time_potential', 'criticality']
+
+    # NODE_FEATURES = ['compute', 'comp_rate', 'comp_time', 'start_time_potential']
+    # NODE_FEATURES = ['compute', 'comp_rate', 'comp_time']
     EDGE_FEATURES = ['bytes', 'comm_delay', 'comm_time', 'comm_rate', 'criticality']
     PLACETO_FEATURES = ['comp_time', 'output_size', 'cur_placement', 'is_cur', 'is_done']
 
@@ -154,30 +157,43 @@ class PlacementEnv:
             est = np.max(c_time + end_time)
             return est - np.average(G_stats.nodes[op]['start_time'])
 
-        op_comp = torch.zeros(sum([len(node_dict[a]) for a in node_dict]))
-        comp_rate = torch.zeros_like(op_comp)
-        comp_time = torch.zeros_like(op_comp)
-        criticality = torch.zeros_like(op_comp)
-        e = torch.zeros_like(op_comp)
+        feat = {}
+        if 'compute' in PlacementEnv.NODE_FEATURES:
+            op_comp = torch.zeros(sum([len(node_dict[a]) for a in node_dict]))
+            for op in node_dict:
+                op_comp[list(node_dict[op].values())] = program.op_compute[op]
+            feat['compute'] = op_comp
 
-        for op in node_dict:
-            op_comp[list(node_dict[op].values())] = program.op_compute[op]
-            criticality[list(node_dict[op].values())] = program.P.nodes[op]['criticality']
-            for d in node_dict[op]:
-                comp_rate[node_dict[op][d]] = network.comp_rate[d]
-                comp_time[node_dict[op][d]] = computation_latency(program, network, op, d)
-                e[node_dict[op][d]] = est(op, d)
+        if 'comp_rate' in PlacementEnv.NODE_FEATURES:
+            comp_rate = torch.zeros(sum([len(node_dict[a]) for a in node_dict]))
+            for op in node_dict:
+                for d in node_dict[op]:
+                    comp_rate[node_dict[op][d]] = network.comp_rate[d]
+            feat['comp_rate'] = comp_rate
 
-        feat = {'compute': op_comp,
-                'comp_rate': comp_rate,
-                'comp_time': comp_time,
-                'criticality': criticality,
-                'start_time_potential': e}
+        if 'comp_time' in PlacementEnv.NODE_FEATURES:
+            comp_time = torch.zeros(sum([len(node_dict[a]) for a in node_dict]))
+            for op in node_dict:
+                for d in node_dict[op]:
+                    comp_time[node_dict[op][d]] = computation_latency(program, network, op, d)
+            feat['comp_time'] = comp_time
+            self.node_feature_mean['comp_time'] = torch.mean(feat['comp_time'])
+            self.node_feature_std['comp_time'] = torch.std(feat['comp_time'])
 
-        self.node_feature_mean['comp_time'] = torch.mean(feat['comp_time'])
-        self.node_feature_std['comp_time'] = torch.std(feat['comp_time'])
-        self.node_feature_mean['start_time_potential'] = torch.mean(feat['start_time_potential'])
-        self.node_feature_std['start_time_potential'] = torch.std(feat['start_time_potential'])
+        if 'criticality' in PlacementEnv.NODE_FEATURES:
+            criticality = torch.zeros(sum([len(node_dict[a]) for a in node_dict]))
+            for op in node_dict:
+                criticality[list(node_dict[op].values())] = program.P.nodes[op]['criticality']
+            feat['criticality'] = criticality
+
+        if 'start_time_potential' in PlacementEnv.NODE_FEATURES:
+            e = torch.zeros(sum([len(node_dict[a]) for a in node_dict]))
+            for op in node_dict:
+                for d in node_dict[op]:
+                    e[node_dict[op][d]] = est(op, d)
+            feat['start_time_potential'] = e
+            self.node_feature_mean['start_time_potential'] = torch.mean(feat['start_time_potential'])
+            self.node_feature_std['start_time_potential'] = torch.std(feat['start_time_potential'])
 
         for feature in self.node_feature_mean:
             feat[feature] = (feat[feature] - self.node_feature_mean[feature]) / (self.node_feature_std[feature] + 0.01)
@@ -224,13 +240,13 @@ class PlacementEnv:
             feat[feature] = (feat[feature] - self.edge_feature_mean[feature]) / self.edge_feature_std[feature]
         return u, v, feat
 
-    def get_full_edge_feature(self, program_id, network_id, mapping, G_stats, bip_connection):
+    def get_full_edge_feature(self, program_id, network_id, mapping, G_stats, bip_connection=False, edge_feature=True):
         program = self.programs[program_id]
         network = self.networks[network_id]
         node_dict = self.full_graph_node_dict[program_id][network_id]
         action_dict = self.full_graph_action_dict[program_id][network_id]
 
-        cur_node = [node_dict[n][mapping[n]] for n in range(program.n_operators)]
+        pivots = [node_dict[n][mapping[n]] for n in range(program.n_operators)]
 
         u = []
         v = []
@@ -239,6 +255,28 @@ class PlacementEnv:
         comm_rate = []
         comm_time = []
         criticality = []
+
+        if not edge_feature:
+            if bip_connection:
+                for n1, n2 in program.P.edges():
+                    edges = list(product(node_dict[n1].values(), node_dict[n2].values()))
+                    u.extend([e[0] for e in edges])
+                    v.extend([e[1] for e in edges])
+            else:
+                for op in node_dict:
+                    for dev in node_dict[op]:
+                        node = node_dict[op][dev]
+                        for op1, op2 in program.P.in_edges(op):
+                            u.append(node_dict[op1][mapping[op1]])
+                            v.append(node)
+                        if node not in pivots:
+                            for op1, op2 in program.P.out_edges(op):
+                                v.append(node_dict[op2][mapping[op2]])
+                                u.append(node)
+            u = torch.tensor(u)
+            v = torch.tensor(v)
+            return u, v
+
 
         if bip_connection:
             for n1, n2 in program.P.edges():
@@ -265,7 +303,7 @@ class PlacementEnv:
                         comm_rate.append(network.comm_rate[mapping[op1], dev])
                         comm_time.append(communication_latency(program, network,  op1, op2, mapping[op1], dev))
                         criticality.append(program.P.edges[op1, op2]['criticality'])
-                    if node not in cur_node:
+                    if node not in pivots:
                         for op1, op2 in program.P.out_edges(op):
                             v.append(node_dict[op2][mapping[op2]])
                             u.append(node)
@@ -455,7 +493,7 @@ class PlacementEnv:
         return g
 
 
-    def get_cardinal_graph(self, program_id, network_id, mapping, G_stats, critical_path=None, last_g = None):
+    def get_cardinal_graph(self, program_id, network_id, mapping, G_stats, critical_path=None):
         self.programs[program_id].update_criticality(critical_path)
         node_features = self.get_node_feature(program_id, network_id, mapping, G_stats)
         u, v, edge_features = self.get_edge_feature(program_id, network_id, mapping, G_stats)
@@ -463,6 +501,12 @@ class PlacementEnv:
         g = dgl.graph((u, v))
         g.edata['x'] = torch.t(torch.stack([edge_features[feat] for feat in PlacementEnv.EDGE_FEATURES])).float()
         g.ndata['x'] = torch.t(torch.stack([node_features[feat] for feat in PlacementEnv.NODE_FEATURES])).float()
+        return g
+
+    def get_no_edge_graph(self, program_id, network_id, mapping, G_stats, device, critical_path=None, bip_connection=False, last_g=None, last_action=None):
+        g = self.get_full_graph(program_id, network_id, mapping, G_stats, device, critical_path=critical_path, bip_connection=bip_connection)
+        g.update_all(dgl.function.copy_e('x', 'edg'), dgl.function.mean('edg', 'edg_mean'))
+        g.ndata['x'] = torch.cat([g.ndata['x'], g.ndata['edg_mean']] , dim=1)
         return g
 
     def get_placeto_graph(self, program_id, network_id, mapping, G_stats, cur_op, done_nodes):
