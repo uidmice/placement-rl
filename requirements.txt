@@ -6,3 +6,4 @@ simpy=4.0.1
 pytorch
 requests
 tqdm
+dgl
