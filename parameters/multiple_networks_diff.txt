@@ -9,8 +9,8 @@
 		"compute_speed": [5],
 		"bw": [100], 
 		"delay": [10], 
-		"beta_bw": [0.5],
-		"beta_speed": [0.5]
+		"beta_bw": [0.8],
+		"beta_speed": [0.8]
 		}],
 	"programs": [{
 		"v": [10, 15],
@@ -19,8 +19,8 @@
 		"alpha": [0.1, 0.2, 0.3],
 		"compute": [100],
 		"bytes": [100],
-		"bete_compute": [0.2],
-		"beta_byte": [0.2]
+		"bete_compute": [0.4],
+		"beta_byte": [0.4]
 		}]
 	},
 "testing": {
@@ -32,8 +32,8 @@
 		"compute_speed": [5],
 		"bw": [100], 
 		"delay": [10], 
-		"beta_bw": [0.2], 
-		"beta_speed": [0.2]
+		"beta_bw": [0.8],
+		"beta_speed": [0.8]
 		}],
 	"programs": [{
 		"v": [10, 15],
@@ -42,8 +42,8 @@
 		"alpha": [0.1, 0.2, 0.3],
 		"compute": [100],
 		"bytes": [100],
-		"bete_compute": [0.2],
-		"beta_byte": [0.2]
+		"bete_compute": [0.4],
+		"beta_byte": [0.4]
 		}]
 	}
 }
