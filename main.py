@@ -36,6 +36,10 @@ def get_args():
                         default=123445,
                         type=int,
                         help='random seed for experiments')
+    parser.add_argument('--feature',
+                        default=0,
+                        type=int,
+                        help='0 (default features), 1 (default features without criticality), 2 (default features without criticality and without time potential)')
 ### Dataset global ###
     parser.add_argument("-p", "--data_parameters",
                         type=validate_file,

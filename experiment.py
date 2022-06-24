@@ -245,7 +245,12 @@ class Experiment_on_data:
             self.init()
 
         print("LOGDIR: ", self.logdir)
-
+        if hasattr(self.exp_cfg, 'feature'):
+            if self.exp_cfg.feature == 1 or self.exp_cfg.feature == 2:
+                PlacementEnv.NODE_FEATURES.remove('criticality')
+                PlacementEnv.EDGE_FEATURES.remove('criticality')
+            if self.exp_cfg.feature == 2:
+                PlacementEnv.NODE_FEATURES.remove('start_time_potential')
 
         if self.exp_cfg.use_placeto:
             self.agent = PlaceToAgent(len(PlacementEnv.PLACETO_FEATURES),
@@ -256,12 +261,6 @@ class Experiment_on_data:
                                   hidden_dim=self.exp_cfg.hidden_dim,
                                   lr=self.exp_cfg.lr,
                                   gamma=self.exp_cfg.gamma)
-        #
-        # elif self.exp_cfg.use_radial_mp:
-        #     self.agent = PlacementAgent_Radial(PlacementEnv.get_node_feature_dim(), PlacementEnv.get_edge_feature_dim(),
-        #                                        self.exp_cfg.output_dim, self.device,
-        #                                        hidden_dim=self.exp_cfg.hidden_dim, lr=self.exp_cfg.lr, gamma=self.exp_cfg.gamma,
-        #                                        k=self.exp_cfg.radial_k)
         else:
             self.agent = PlacementAgent(PlacementEnv.get_node_feature_dim(), PlacementEnv.get_edge_feature_dim(),
                                    self.exp_cfg.output_dim,

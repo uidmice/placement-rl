@@ -311,7 +311,9 @@ def plot_performance_slr_samples(logdir, ax, noise, plot_best=True, update=False
     if ylim:
         ax.set_ylim(ylim)
     return ax
-# plot_eval_performance_across_training_episodes('runs2/multiple_networks')
+
+
+plot_eval_performance_across_training_episodes('runs2/multiple_networks')
 
 fig, ax = plt.subplots(1,1, figsize=(5,4))
 plot_performance_slr_samples('runs2/multiple_networks', ax, 0)
