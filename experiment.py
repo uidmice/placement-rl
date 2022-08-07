@@ -87,7 +87,8 @@ def run_episodes(env,
                  save_data=False,
                  save_dir='data',
                  save_name='',
-                 noise=0):
+                 noise=0,
+                 objective='slr'):
 
     assert isinstance(seeds, list)
     assert isinstance(program_ids, list)
@@ -137,6 +138,9 @@ def run_episodes(env,
                 cur_mapping = env.random_mapping(program_id, network_id, seed)
 
                 last_latency, path, G_stats = env.simulate(program_id, network_id, cur_mapping, noise)
+                if objective == 'cost':
+                    last_latency = sum([G_stats.nodes[i]['comp_time'][0] for i in G_stats.nodes])\
+                                   + sum([G_stats.edges[e]['comm_time'][0] for e in G_stats.edges])
                 new_episode = False
 
                 g = None
@@ -150,8 +154,8 @@ def run_episodes(env,
             if use_placeto:
                 s = placeto_order[t % program.n_operators]
                 g = env.get_placeto_graph(program_id, network_id, cur_mapping, G_stats, s, placeto_order[:t% program.n_operators]).to(device)
-                mask[:] = 1
-                mask[constraints[s]] = 0
+                mask[:] = 0
+                mask[constraints[s]] = 1
                 action = agent.dev_selection(g, program, s, mask)
 
             elif use_full_graph:
@@ -166,7 +170,9 @@ def run_episodes(env,
                     if len(ep_data['actions']) > 0:
                         last_op = ep_data['actions'][-1][0]
                         mask[list(node_dict[last_op].values())] = 0
-
+                g.ndata['x'] = torch.nan_to_num(g.ndata['x'])
+                if sum(mask) == 0:
+                    mask[cur_nodes[0]] = 1
                 s, action = agent.op_dev_selection(g, action_dict, mask)
                 last_action = [s, cur_mapping[s], action]
 
@@ -180,7 +186,10 @@ def run_episodes(env,
             ep_data['actions'].append([s, action])
 
             latency, path, G_stats = env.simulate(program_id, network_id, cur_mapping, noise)
-            reward = (last_latency - latency) / 10
+            if objective == 'cost':
+                latency = sum([G_stats.nodes[i]['comp_time'][0] for i in G_stats.nodes]) \
+                               + sum([G_stats.edges[e]['comm_time'][0] for e in G_stats.edges])
+            reward = (last_latency - latency)
             last_latency = latency
 
             case_data['sampled_placement'].append(cur_mapping.copy())
@@ -252,6 +261,7 @@ class Experiment_on_data:
             if self.exp_cfg.feature == 2:
                 PlacementEnv.NODE_FEATURES.remove('start_time_potential')
 
+
         if self.exp_cfg.use_placeto:
             self.agent = PlaceToAgent(len(PlacementEnv.PLACETO_FEATURES),
                                   self.exp_cfg.output_dim,
@@ -288,6 +298,12 @@ class Experiment_on_data:
 
         self.last_eval_latency = np.array([np.inf] * self.exp_cfg.num_of_eval_cases)
 
+        if not hasattr(self.exp_cfg, 'objective'):
+            setattr(self.exp_cfg, 'objective', 'slr')
+
+        if self.exp_cfg.objective != 'cost':
+            self.exp_cfg.objective = 'slr'
+
 
 
     def init(self):
@@ -295,6 +311,20 @@ class Experiment_on_data:
 
         train_networks, train_programs, eval_networks, eval_programs = generate_data(self.exp_cfg.data_parameters)
 
+        if self.exp_cfg.load_graphs:
+            programs = pickle.load(open(self.exp_cfg.load_graphs, 'rb'))
+            random.shuffle(programs)
+            n = len(programs)//2
+            train_programs = programs[:n]
+            eval_programs = programs[n:]
+        if self.exp_cfg.load_train_graphs:
+            train_programs = pickle.load(open(self.exp_cfg.load_train_graphs, 'rb'))
+        if self.exp_cfg.load_test_graphs:
+            eval_programs = pickle.load(open(self.exp_cfg.load_test_graphs, 'rb'))
+        if self.exp_cfg.load_train_networks:
+            train_networks = pickle.load(open(self.exp_cfg.load_train_networks, 'rb'))
+        if self.exp_cfg.load_test_networks:
+            eval_networks = pickle.load(open(self.exp_cfg.load_test_networks, 'rb'))
         self.train_networks = train_networks
         self.train_programs = train_programs
         self.eval_networks = eval_networks
@@ -303,6 +333,7 @@ class Experiment_on_data:
         pickle.dump([eval_networks, eval_programs], open(os.path.join(self.logdir, "eval_data.pkl"), "wb"))
 
         self.train_sequence = []
+
         eval_cases = random.sample(list(itertools.product(range(len(eval_networks)), range(len(eval_programs)))), self.exp_cfg.num_of_eval_cases)
         self.eval_cases_network = [a[0] for a in eval_cases]
         self.eval_cases_program = [a[1] for a in eval_cases]
@@ -341,7 +372,8 @@ class Experiment_on_data:
                                         samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
                                         update_policy=True,
                                         save_data=False,
-                                        noise=self.exp_cfg.noise)
+                                        noise=self.exp_cfg.noise,
+                                        objective=self.exp_cfg.objective)
             record.append(train_record)
             self.train_sequence.extend(zip(train_network_id, train_program_id, train_init_map))
             cnt += 1
@@ -359,7 +391,8 @@ class Experiment_on_data:
                                            samples_to_ops_ratio=self.exp_cfg.samples_to_ops_ratio,
                                            update_policy=False,
                                            save_data=False,
-                                           noise=self.exp_cfg.noise)
+                                           noise=self.exp_cfg.noise,
+                                           objective=self.exp_cfg.objective)
                 eval_records.append(test_record)
                 eval_output = np.array([min(episode['latency_trace']) for episode in test_record])
                 num_improved = np.sum(eval_output < self.last_eval_latency)
@@ -408,16 +441,12 @@ class Experiment_on_data:
 
         return record
 
-    def test(self, para, max_num_of_tests, test_repeat, num_of_tune, noise, sample_ratio):
-        if para is None:
-            try:
-                test_networks, test_programs = pickle.load(open(os.path.join(self.logdir, 'eval_data.pkl'), 'rb'))
-                para = json.load(open(os.path.join(self.logdir, 'run_data.txt'), 'r'))['data_para']
-            except:
-                raise ValueError('Nothing to test')
-        else:
-            test_networks = networks_from_para(para['testing']['networks'], para['num_of_types'])
-            test_programs = programs_from_para(para['testing']['programs'], para['num_of_types'])
+    def test(self, max_num_of_tests, test_repeat, num_of_tune, noise, sample_ratio):
+        try:
+            test_networks, test_programs = pickle.load(open(os.path.join(self.logdir, 'eval_data.pkl'), 'rb'))
+            para = json.load(open(os.path.join(self.logdir, 'run_data.txt'), 'r'))['data_para']
+        except:
+            raise ValueError('Nothing to test')
 
         logdir = os.path.join(self.logdir, 'test_{}'.format(datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")))
         if not os.path.exists(logdir):
@@ -458,7 +487,7 @@ class Experiment_on_data:
             self.agent.policy.load_state_dict(torch.load(os.path.join(logdir, 'policy.pk')))
             self.agent.embedding.load_state_dict(torch.load(os.path.join(logdir, 'embedding.pk')))
             print('===========================================================================')
-            print(f"RUNNING {self.exp_cfg.num_testing_cases_repeat} testing episodes for network {network_id}/program {program_id} ({i+1}/{len(set)}).")
+            print(f"RUNNING {test_repeat} testing episodes for network {network_id}/program {program_id} ({i+1}/{len(set)}).")
             run_episodes(self.eval_env, self.agent,
                          [program_id] * test_repeat,
                          [network_id] * test_repeat,
@@ -473,7 +502,8 @@ class Experiment_on_data:
                          save_data=True,
                          save_dir=logdir,
                          save_name=f'test_program_{program_id}_network_{network_id}_seed_{seed}',
-                         noise=noise)
+                         noise=noise,
+                         objective=self.exp_cfg.objective)
 
             if num_of_tune>0:
                 print(f"RUNNING {num_of_tune} tuning episodes for network {network_id}/program {program_id}.")
@@ -491,7 +521,8 @@ class Experiment_on_data:
                              save_data=True,
                              save_dir=logdir,
                              save_name=f'tune_program_{program_id}_network_{network_id}_seed_{seed}',
-                             noise=noise)
+                             noise=noise,
+                             objective=self.exp_cfg.objective)
 
                 print(f"RUNNING {self.exp_cfg.num_testing_cases_repeat} testing episodes for network {network_id}/program {program_id} after tuned.")
                 run_episodes(self.eval_env, self.agent,
@@ -508,4 +539,5 @@ class Experiment_on_data:
                              save_data=True,
                              save_dir=logdir,
                              save_name=f'test_program_{program_id}_network_{network_id}_seed_{seed}_tuned',
-                             noise=noise)
+                             noise=noise,
+                             objective=self.exp_cfg.objective)

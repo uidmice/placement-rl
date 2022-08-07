@@ -68,11 +68,12 @@ def communication_latency(program, network, op1, op2, dev1, dev2, noise=0.0):
 #     return latency, critical_path
 
 
-def simulate (mapping, program, network, noise=0, repeat=1):
+def simulate (mapping, program, network, noise=0, repeat=1, objective='slr'):
     if not isinstance(mapping, list):
         map = from_matrix_to_mapping(mapping)
     else:
         map = mapping
+
 
 
     G = nx.DiGraph()

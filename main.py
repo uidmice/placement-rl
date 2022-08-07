@@ -40,6 +40,11 @@ def get_args():
                         default=0,
                         type=int,
                         help='0 (default features), 1 (default features without criticality), 2 (default features without criticality and without time potential)')
+    parser.add_argument('--objective',
+                        default='slr',
+                        type=str,
+                        help='learning objective. Either "slr" (by default) or "cost"')
+
 ### Dataset global ###
     parser.add_argument("-p", "--data_parameters",
                         type=validate_file,
@@ -68,9 +73,20 @@ def get_args():
                         default='policy.pk',
                         help='file name of the policy parameters')
 
-    parser.add_argument("--test_parameters",
-                        type=validate_file,
-                        dest='test_para',
+    parser.add_argument("--load_graphs",
+                        type=str,
+                        help="json text file specifying the testing dataset parameters", metavar="FILE")
+    parser.add_argument("--load_train_graphs",
+                        type=str,
+                        help="json text file specifying the testing dataset parameters", metavar="FILE")
+    parser.add_argument("--load_test_graphs",
+                        type=str,
+                        help="json text file specifying the testing dataset parameters", metavar="FILE")
+    parser.add_argument("--load_train_networks",
+                        type=str,
+                        help="json text file specifying the testing dataset parameters", metavar="FILE")
+    parser.add_argument("--load_test_networks",
+                        type=str,
                         help="json text file specifying the testing dataset parameters", metavar="FILE")
 
 
@@ -127,7 +143,7 @@ def get_args():
                         help='The number of training episodes between two evaluations (default: 5)')
 
     parser.add_argument('--num_testing_cases',
-                        default=500,
+                        default=300,
                         type=int,
                         help='max number of testing cases (default: 500)')
 
@@ -203,5 +219,5 @@ if __name__ == '__main__':
     if exp_cfg.test:
         if not exp_cfg.load_dir:
             raise Exception('--run_folder is not provided for testing')
-        experiment.test(exp_cfg.test_para, exp_cfg.num_testing_cases, exp_cfg.num_testing_cases_repeat, exp_cfg.num_tuning_episodes,
+        experiment.test( exp_cfg.num_testing_cases, exp_cfg.num_testing_cases_repeat, exp_cfg.num_tuning_episodes,
                         exp_cfg.noise, exp_cfg.samples_to_ops_ratio)

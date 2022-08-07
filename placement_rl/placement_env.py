@@ -1,7 +1,9 @@
 import itertools
 from itertools import product
 import dgl
+import networkx as nx
 import torch
+import torch.nn.functional as F
 
 from env.latency import *
 from placement_rl.memory_buffer import Buffer
@@ -533,6 +535,29 @@ class PlacementEnv:
         g.ndata['x'] = torch.t(torch.stack([feat[a] for a in PlacementEnv.PLACETO_FEATURES])).float()
 
         return g
+
+    def get_hdp_embedding(self, program_id, out_limit, node_limit):
+        prg = self.programs[program_id]
+
+        rt = torch.zeros((prg.n_operators, 6 + out_limit+node_limit))
+        type = F.one_hot(torch.tensor(prg.placement_constraints), 5)
+
+        rt[:, :5] = type
+        rt[:, 5] = prg.op_compute/torch.max(prg.op_compute)
+        for n in prg.P.nodes:
+            for i, e in enumerate(prg.P.out_edges(n)):
+                rt[n, 6+i] = prg.data_bytes[e]/torch.max(prg.data_bytes)
+        order = list(nx.topological_sort(prg.P))
+        relabel = {i: order[i] for i in prg.P.nodes}
+        order = [k for k, v in sorted(relabel.items(), key=lambda item: item[1])]
+        rt = rt[order]
+        G = nx.relabel_nodes(prg.P, relabel)
+        for n in G.nodes:
+            for m in G.successors(n):
+                rt[n, 6+out_limit+m] = 1
+
+        return rt
+
 
     def evaluate(self, program_id, network_id, mapping, noise=0, repeat=1):
         l, path, G = self.simulate(program_id, network_id, mapping, noise, repeat)
