@@ -2,7 +2,6 @@ import numpy as np
 from env.utils import *
 from env.latency import evaluate, computation_latency, communication_latency, simulate
 from placement_rl.placement_env import PlacementEnv
-from heft.core import schedule
 
 def get_placement_constraints(program, network):
     constraints = []

@@ -140,6 +140,7 @@ def get_args():
 
     parser.add_argument('--eval_frequency',
                         default=5,
+                        type=int,
                         help='The number of training episodes between two evaluations (default: 5)')
 
     parser.add_argument('--num_testing_cases',

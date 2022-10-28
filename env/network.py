@@ -50,3 +50,5 @@ class FullNetwork:
         self.comm_delay = torch.tensor(delay)
         self.comm_rate = torch.tensor(comm_rate)
         self.device_constraints = device_constraints
+
+
