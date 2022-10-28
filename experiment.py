@@ -266,7 +266,7 @@ class Experiment_on_data:
             self.agent = PlaceToAgent(len(PlacementEnv.PLACETO_FEATURES),
                                   self.exp_cfg.output_dim,
                                    device=self.device,
-                                  n_device = self.exp_cfg.data_parameters['training']['networks'][0]['num_of_devices'][0],
+                                  n_device = self.train_networks[0].n_devices,
                                   k=self.exp_cfg.placeto_k,
                                   hidden_dim=self.exp_cfg.hidden_dim,
                                   lr=self.exp_cfg.lr,
