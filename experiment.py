@@ -249,10 +249,17 @@ class Experiment_on_data:
             self.eval_cases_init_mapping = [l[2] for l in run_data['eval_sequence']]
 
         else:
+            alg_name = 'giph'
+            if self.exp_cfg.use_placeto:
+                alg_name = 'placeto'
+            elif self.exp_cfg.use_op_selection:
+                alg_name = 'rl_est'
             self.logdir = os.path.join(
                 self.exp_cfg.logdir, '{}_{}'.format(
                     datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
-                    self.exp_cfg.logdir_suffix))
+                    alg_name))
+            if self.exp_cfg.logdir_suffix:
+                self.logdir += f'_{self.exp_cfg.logdir_suffix}'
             if not os.path.exists(self.logdir):
                 os.makedirs(self.logdir)
             pickle.dump(self.exp_cfg,

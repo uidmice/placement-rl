@@ -63,7 +63,7 @@ def get_args():
     parser.add_argument('--run_folder',
                         type=validate_dir,
                         dest='load_dir',
-                        help='directory to load existing run data')
+                        help='directory to load existing training data')
 
     parser.add_argument('--embedding_model',
                         default='embedding.pk',
@@ -75,24 +75,23 @@ def get_args():
                         help='file name of the policy parameters')
 
     parser.add_argument("--load_graphs",
-                        type=str,
-                        help="json text file specifying the testing dataset parameters", metavar="FILE")
+                        type=str)
     parser.add_argument("--load_train_ugraphs",
                         type=str)
     parser.add_argument("--load_test_ugraphs",
                         type=str)
     parser.add_argument("--load_train_graphs",
                         type=str,
-                        help="json text file specifying the testing dataset parameters", metavar="FILE")
+                        help="path to the training task graphs", metavar="FILE")
     parser.add_argument("--load_test_graphs",
                         type=str,
-                        help="json text file specifying the testing dataset parameters", metavar="FILE")
+                        help="path to the testing task graphs", metavar="FILE")
     parser.add_argument("--load_train_networks",
                         type=str,
-                        help="json text file specifying the testing dataset parameters", metavar="FILE")
+                        help="path to the training device networks", metavar="FILE")
     parser.add_argument("--load_test_networks",
                         type=str,
-                        help="json text file specifying the testing dataset parameters", metavar="FILE")
+                        help="path to the testing device networks", metavar="FILE")
 
 
 ### policy learning ###
@@ -114,7 +113,7 @@ def get_args():
     parser.add_argument('--samples_to_ops_ratio',
                         default=2,
                         type=int,
-                        help='the ratio of the number of iterations per episode to the number of operators during training (default: 1.5)')
+                        help='the ratio of the number of iterations per episode to the number of operators during training (default: 2)')
 
     parser.add_argument('--max_num_training_episodes',
                         default=200,
@@ -124,7 +123,7 @@ def get_args():
     parser.add_argument('--min_num_training_episodes',
                         default=200,
                         type=int,
-                        help='min number of training episodes (default: 50)')
+                        help='min number of training episodes (default: 200)')
 
     parser.add_argument('--memory_capacity',
                         default=4,
@@ -151,7 +150,7 @@ def get_args():
     parser.add_argument('--num_testing_cases',
                         default=300,
                         type=int,
-                        help='max number of testing cases (default: 500)')
+                        help='max number of testing cases (default: 300)')
 
     parser.add_argument('--num_testing_cases_repeat',
                         default=2,
