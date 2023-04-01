@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 class Program:
-    def __init__(self, P: nx.DiGraph):
+    def __init__(self, P: nx.DiGraph, critic_init=True):
         self.P = P
         self.n_operators = self.P.number_of_nodes()
 
@@ -23,8 +23,8 @@ class Program:
         self.placement_constraints = [P.nodes[i]['h_constraint'] for i in range(self.n_operators)]
 
         # self.pinned = [self.placement_constraints[0][0], self.placement_constraints[self.n_operators-1][0]]
-
-        self.init_criticality()
+        if critic_init:
+            self.init_criticality()
 
         self.op_parents = [list(self.P.predecessors(n)) for n in range(self.n_operators)]
         self.op_children = [list(self.P.successors(n)) for n in range(self.n_operators)]

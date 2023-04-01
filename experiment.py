@@ -88,7 +88,8 @@ def run_episodes(env,
                  save_dir='data',
                  save_name='',
                  noise=0,
-                 objective='slr'):
+                 objective='slr',
+                 ungrouped=None):
 
     assert isinstance(seeds, list)
     assert isinstance(program_ids, list)
@@ -103,6 +104,9 @@ def run_episodes(env,
         program = env.programs[program_id]
         network = env.networks[network_id]
         constraints = env.get_placement_constraints(program_id, network_id)
+        ungrouped_map = None
+        if ungrouped:
+            ungrouped_map = pickle.load(open(ungrouped, 'rb'))[program_id]
 
         num_of_samples = int( program.n_operators*  samples_to_ops_ratio)
         if use_placeto:
@@ -137,7 +141,9 @@ def run_episodes(env,
 
                 cur_mapping = env.random_mapping(program_id, network_id, seed)
 
-                last_latency, path, G_stats = env.simulate(program_id, network_id, cur_mapping, noise)
+
+                last_latency, path, G_stats = env.simulate(program_id, network_id, cur_mapping, noise, ungrouped=ungrouped_map)
+
                 if objective == 'cost':
                     last_latency = sum([G_stats.nodes[i]['comp_time'][0] for i in G_stats.nodes])\
                                    + sum([G_stats.edges[e]['comm_time'][0] for e in G_stats.edges])
@@ -185,7 +191,8 @@ def run_episodes(env,
             cur_mapping[s] = action
             ep_data['actions'].append([s, action])
 
-            latency, path, G_stats = env.simulate(program_id, network_id, cur_mapping, noise)
+            latency, path, G_stats = env.simulate(program_id, network_id, cur_mapping, noise, ungrouped=ungrouped_map)
+
             if objective == 'cost':
                 latency = sum([G_stats.nodes[i]['comp_time'][0] for i in G_stats.nodes]) \
                                + sum([G_stats.edges[e]['comm_time'][0] for e in G_stats.edges])
@@ -310,13 +317,14 @@ class Experiment_on_data:
         random.seed(self.seed)
 
         train_networks, train_programs, eval_networks, eval_programs = generate_data(self.exp_cfg.data_parameters)
-
         if self.exp_cfg.load_graphs:
             programs = pickle.load(open(self.exp_cfg.load_graphs, 'rb'))
+
             random.shuffle(programs)
             n = len(programs)//2
             train_programs = programs[:n]
             eval_programs = programs[n:]
+
         if self.exp_cfg.load_train_graphs:
             train_programs = pickle.load(open(self.exp_cfg.load_train_graphs, 'rb'))
         if self.exp_cfg.load_test_graphs:
@@ -347,6 +355,9 @@ class Experiment_on_data:
         cnt = len(self.train_sequence)//self.exp_cfg.eval_frequency
 
         count_down = 5
+        ungrouped = None
+        if self.exp_cfg.load_train_ugraphs:
+            ungrouped = self.exp_cfg.load_train_ugraphs
 
         while len(self.train_sequence) < self.max_num_train_episodes:
             train_network_id = np.random.choice(len(self.train_networks), self.exp_cfg.eval_frequency).tolist()
@@ -373,7 +384,8 @@ class Experiment_on_data:
                                         update_policy=True,
                                         save_data=False,
                                         noise=self.exp_cfg.noise,
-                                        objective=self.exp_cfg.objective)
+                                        objective=self.exp_cfg.objective,
+                                        ungrouped=ungrouped)
             record.append(train_record)
             self.train_sequence.extend(zip(train_network_id, train_program_id, train_init_map))
             cnt += 1

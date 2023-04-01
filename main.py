@@ -39,7 +39,8 @@ def get_args():
     parser.add_argument('--feature',
                         default=0,
                         type=int,
-                        help='0 (default features), 1 (default features without criticality), 2 (default features without criticality and without time potential)')
+                        help='0 (default features), 1 (default features without criticality), '
+                             '2 (default features without criticality and without time potential)')
     parser.add_argument('--objective',
                         default='slr',
                         type=str,
@@ -76,6 +77,10 @@ def get_args():
     parser.add_argument("--load_graphs",
                         type=str,
                         help="json text file specifying the testing dataset parameters", metavar="FILE")
+    parser.add_argument("--load_train_ugraphs",
+                        type=str)
+    parser.add_argument("--load_test_ugraphs",
+                        type=str)
     parser.add_argument("--load_train_graphs",
                         type=str,
                         help="json text file specifying the testing dataset parameters", metavar="FILE")
