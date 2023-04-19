@@ -132,7 +132,10 @@ def run_episodes(env,
         new_episode = True
 
         start_time = time.time()
+        exp = True
         for t in range(num_of_samples):
+            if t > program.n_operators:
+                exp = False
             if new_episode:
                 ep_data = {}
                 ep_data['actions'] = []
@@ -169,7 +172,7 @@ def run_episodes(env,
                     g = env.get_no_edge_graph(program_id, network_id, cur_mapping, G_stats, device, path, False).to(device)
                 else:
                     g = env.get_full_graph(program_id, network_id, cur_mapping, G_stats, device, path, False, last_g=g, last_action=last_action).to(device)
-                if explore:
+                if exp:
                     cur_nodes = [node_dict[o][cur_mapping[o]] for o in node_dict]
                     mask[:] = 1
                     mask[cur_nodes]=0

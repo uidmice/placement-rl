@@ -141,8 +141,10 @@ class PlacementEnv:
             self.node_feature_mean['start_time_potential'] = torch.mean(feat['start_time_potential'])
             self.node_feature_std['start_time_potential'] = torch.std(feat['start_time_potential'])
 
-        for feature in self.node_feature_mean:
-            feat[feature] = (feat[feature] - self.node_feature_mean[feature]) / (self.node_feature_std[feature] + 0.01)
+        for feature in feat:
+            mi = torch.min(feat[feature])
+            ma = torch.max(feat[feature])
+            feat[feature] = (feat[feature] - mi) * 2 / (ma-mi) - 1
         return feat
 
     def get_full_node_feature(self, program_id, network_id, mapping, G_stats):
@@ -152,7 +154,7 @@ class PlacementEnv:
 
         def est(op, dev):
             parents = program.op_parents[op]
-            if op == 0:
+            if op == 0 or mapping[op] == dev:
                 return 0
             end_time = np.array([np.mean(G_stats.nodes[p]['end_time']) for p in parents])
             c_time = np.array([communication_latency(program, network, p, op, mapping[p], dev) for p in parents])
@@ -197,8 +199,10 @@ class PlacementEnv:
             self.node_feature_mean['start_time_potential'] = torch.mean(feat['start_time_potential'])
             self.node_feature_std['start_time_potential'] = torch.std(feat['start_time_potential'])
 
-        for feature in self.node_feature_mean:
-            feat[feature] = (feat[feature] - self.node_feature_mean[feature]) / (self.node_feature_std[feature] + 0.01)
+        for feature in feat:
+            mi = torch.min(feat[feature])
+            ma = torch.max(feat[feature])
+            feat[feature] = (feat[feature] - mi) * 2 / (ma-mi) - 1
         return feat
 
     def get_edge_feature(self, program_id, network_id, mapping, G_stats):
@@ -238,8 +242,10 @@ class PlacementEnv:
                 'criticality': criticality}
         self.edge_feature_mean['comm_time'] = torch.mean(feat['comm_time'])
         self.edge_feature_std['comm_time'] = torch.std(feat['comm_time'])
-        for feature in self.edge_feature_mean:
-            feat[feature] = (feat[feature] - self.edge_feature_mean[feature]) / self.edge_feature_std[feature]
+        for feature in feat:
+            mi = torch.min(feat[feature])
+            ma = torch.max(feat[feature])
+            feat[feature] = (feat[feature] - mi) * 2 / (ma-mi) - 1
         return u, v, feat
 
     def get_full_edge_feature(self, program_id, network_id, mapping, G_stats, bip_connection=False, edge_feature=True):
@@ -328,10 +334,10 @@ class PlacementEnv:
                 'comm_rate': comm_rate,
                 'comm_time': comm_time,
                 'criticality': criticality}
-        self.edge_feature_mean['comm_time'] = torch.mean(feat['comm_time'])
-        self.edge_feature_std['comm_time'] = torch.std(feat['comm_time'])
-        for feature in self.edge_feature_mean:
-            feat[feature] = (feat[feature] - self.edge_feature_mean[feature]) / self.edge_feature_std[feature]
+        for feature in feat:
+            mi = torch.min(feat[feature])
+            ma = torch.max(feat[feature])
+            feat[feature] = (feat[feature] - mi) * 2 / (ma-mi) - 1
         return u, v, feat
 
     def init_full_graph(self, program_id, network_id):
@@ -371,13 +377,16 @@ class PlacementEnv:
                 action_dict[id] = (n, d)
                 id += 1
 
-        self.full_graph_node_dev_action_matrix[program_id][network_id] = torch.zeros((len(action_dict), program.n_operators, network.n_devices))
+        self.full_graph_node_dev_action_matrix[program_id][network_id] = torch.zeros((len(action_dict),
+                                                                                      program.n_operators,
+                                                                                      network.n_devices))
         idx1 = list(action_dict.keys())
         idx2 = [c[0] for c in action_dict.values()]
         idx3 = [c[1] for c in action_dict.values()]
         self.full_graph_node_dev_action_matrix[program_id][network_id][idx1, idx2, idx3] = 1
 
-        self.full_graph_full_edge_comm[program_id][network_id] = torch.zeros((len(action_dict), len(action_dict)))
+        self.full_graph_full_edge_comm[program_id][network_id] = torch.zeros((len(action_dict),
+                                                                              len(action_dict)))
         self.full_graph_full_node_comp[program_id][network_id] = torch.zeros(len(action_dict))
         comm = self.full_graph_full_edge_comm[program_id][network_id]
         comp = self.full_graph_full_node_comp[program_id][network_id]
@@ -393,104 +402,103 @@ class PlacementEnv:
         self.programs[program_id].update_criticality(critical_path)
         self.init_full_graph(program_id, network_id)
 
-        if last_g is None or last_action is None:
-            node_features = self.get_full_node_feature(program_id, network_id, mapping, G_stats)
-            u, v, edge_features = self.get_full_edge_feature(program_id, network_id, mapping, G_stats, bip_connection)
+        node_features = self.get_full_node_feature(program_id, network_id, mapping, G_stats)
+        u, v, edge_features = self.get_full_edge_feature(program_id, network_id, mapping, G_stats, bip_connection)
 
-            g = dgl.graph((u, v))
-            g.edata['x'] = torch.t(torch.stack([edge_features[feat] for feat in PlacementEnv.EDGE_FEATURES])).float()
-            g.edata['c'] = self.full_graph_full_edge_comm[program_id][network_id][u, v]
-            g.ndata['x'] = torch.t(torch.stack([node_features[feat] for feat in PlacementEnv.NODE_FEATURES])).float()
-            g.ndata['c'] = self.full_graph_full_node_comp[program_id][network_id]
+        g = dgl.graph((u, v))
+        g.edata['x'] = torch.t(torch.stack([edge_features[feat] for feat in PlacementEnv.EDGE_FEATURES])).float()
+        # g.edata['c'] = self.full_graph_full_edge_comm[program_id][network_id][u, v]
+        g.ndata['x'] = torch.t(torch.stack([node_features[feat] for feat in PlacementEnv.NODE_FEATURES])).float()
+        # g.ndata['c'] = self.full_graph_full_node_comp[program_id][network_id]
 
-            return g
+        return g
 
-        program = self.programs[program_id]
-        network = self.networks[network_id]
-        node_dict = self.full_graph_node_dict[program_id][network_id]
-        action_idx = self.full_graph_action_dict[program_id][network_id]
-
-        g = last_g
-
-        moved_op = last_action[0]
-        old_dev = last_action[1]
-        new_dev = last_action[2]
-        old_node = node_dict[moved_op][old_dev]
-        new_node = node_dict[moved_op][new_dev]
-
-        u = g.predecessors(old_node).tolist()
-        u  = list(set(u) - set([node_dict[n][mapping[n]] for n in program.P.predecessors(moved_op)]))
-        feat_p = {'x': torch.zeros((len(u), len(PlacementEnv.EDGE_FEATURES)), device=device),
-                'c': self.full_graph_full_edge_comm[program_id][network_id][u, [new_node] * len(u) ].to(device)}
-        for i, f in enumerate(PlacementEnv.EDGE_FEATURES):
-            if f == 'bytes' or f ==  'criticality':
-                for j, p in enumerate(u):
-                    p_op = action_idx[p][0]
-                    feat_p['x'][j, i] = program.P.edges[p_op, moved_op][f]
-            if f ==  'comm_delay':
-                for j, p in enumerate(u):
-                    p_dev = action_idx[p][1]
-                    feat_p['x'][j, i] = network.comm_delay[p_dev, new_dev]
-            if f == 'comm_rate':
-                for j, p in enumerate(u):
-                    p_dev = action_idx[p][1]
-                    feat_p['x'][j, i] = network.comm_rate[p_dev, new_dev]
-            if f == 'comm_time':
-                feat_p['x'][:, i] = feat_p['c']
-
-            if f in self.edge_feature_mean:
-                feat_p['x'][:, i] = (feat_p['x'][:, i] -  self.edge_feature_mean[f])/self.edge_feature_std[f]
-
-        children = g.successors(old_node).tolist()
-        un_affected_children = [node_dict[n][mapping[n]] for n in program.P.successors(moved_op)]
-        v = list(set(children) - set(un_affected_children))
-        feat_c = {'x': torch.zeros((len(v), len(PlacementEnv.EDGE_FEATURES)), device=device),
-                  'c': self.full_graph_full_edge_comm[program_id][network_id][[new_node] * len(v), v].to(device)}
-        for i, f in enumerate(PlacementEnv.EDGE_FEATURES):
-            if f == 'bytes' or f == 'criticality':
-                for j, p in enumerate(v):
-                    p_op = action_idx[p][0]
-                    feat_c['x'][j, i] = program.P.edges[moved_op, p_op][f]
-            if f == 'comm_delay':
-                for j, p in enumerate(v):
-                    p_dev = action_idx[p][1]
-                    feat_c['x'][j, i] = network.comm_delay[new_dev, p_dev]
-            if f == 'comm_rate':
-                for j, p in enumerate(v):
-                    p_dev = action_idx[p][1]
-                    feat_c['x'][j, i] = network.comm_rate[new_dev, p_dev]
-            if f == 'comm_time':
-                feat_c['x'][:, i] = feat_c['c']
-
-            if f in self.edge_feature_mean:
-                feat_c['x'][:, i] = (feat_c['x'][:, i] - self.edge_feature_mean[f]) / self.edge_feature_std[f]
-
-        g = dgl.remove_edges(g, g.edge_ids(u + [old_node] * len(v), [old_node] * len(u) + v))
-
-        g.add_edges(torch.tensor(u, device=device, dtype=torch.int64), torch.tensor([new_node] * len(u), device=device, dtype=torch.int64), feat_p)
-        g.add_edges(torch.tensor([new_node] * len(v), device=device, dtype=torch.int64), torch.tensor(v, device=device, dtype=torch.int64), feat_c)
-
-
-        if 'criticality' in PlacementEnv.NODE_FEATURES and critical_path is not None:
-            idx = PlacementEnv.NODE_FEATURES.index('criticality')
-            indicator = torch.sum(self.full_graph_node_dev_action_matrix[program_id][network_id], dim=2).to(device)
-            c = torch.tensor([program.P.nodes[o]['criticality'] for o in range(program.n_operators)]).float().to(device)
-            c = torch.matmul(indicator , c)
-            g.ndata['x'][:, idx] =  c
-
-        if 'start_time_potential' in PlacementEnv.NODE_FEATURES:
-            g.ndata['s'] = torch.randn(g.num_nodes(), device=device)
-            cur_p = [node_dict[n][mapping[n]] for n in range(program.n_operators)]
-            baseline = torch.tensor([np.mean(G_stats.nodes[n]['end_time']) for n in range(program.n_operators)]).float().to(device)
-            g.ndata['s'][cur_p] = baseline
-
-            g.update_all(dgl.function.u_add_e('s', 'c', 'm'),
-                         dgl.function.max('m', 'a'))
-            indicator = torch.sum(self.full_graph_node_dev_action_matrix[program_id][network_id], dim=2).to(device)
-            c = torch.matmul(indicator, baseline)
-            a = g.ndata['a']
-            idx = PlacementEnv.NODE_FEATURES.index('start_time_potential')
-            g.ndata['x'][:, idx] = c-a
+        # program = self.programs[program_id]
+        # network = self.networks[network_id]
+        # node_dict = self.full_graph_node_dict[program_id][network_id]
+        # action_idx = self.full_graph_action_dict[program_id][network_id]
+        #
+        # g = last_g
+        #
+        # moved_op = last_action[0]
+        # old_dev = last_action[1]
+        # new_dev = last_action[2]
+        # old_node = node_dict[moved_op][old_dev]
+        # new_node = node_dict[moved_op][new_dev]
+        #
+        # u = g.predecessors(old_node).tolist()
+        # u  = list(set(u) - set([node_dict[n][mapping[n]] for n in program.P.predecessors(moved_op)]))
+        # feat_p = {'x': torch.zeros((len(u), len(PlacementEnv.EDGE_FEATURES)), device=device),
+        #         'c': self.full_graph_full_edge_comm[program_id][network_id][u, [new_node] * len(u) ].to(device)}
+        # for i, f in enumerate(PlacementEnv.EDGE_FEATURES):
+        #     if f == 'bytes' or f ==  'criticality':
+        #         for j, p in enumerate(u):
+        #             p_op = action_idx[p][0]
+        #             feat_p['x'][j, i] = program.P.edges[p_op, moved_op][f]
+        #     if f ==  'comm_delay':
+        #         for j, p in enumerate(u):
+        #             p_dev = action_idx[p][1]
+        #             feat_p['x'][j, i] = network.comm_delay[p_dev, new_dev]
+        #     if f == 'comm_rate':
+        #         for j, p in enumerate(u):
+        #             p_dev = action_idx[p][1]
+        #             feat_p['x'][j, i] = network.comm_rate[p_dev, new_dev]
+        #     if f == 'comm_time':
+        #         feat_p['x'][:, i] = feat_p['c']
+        #
+        #     if f in self.edge_feature_mean:
+        #         feat_p['x'][:, i] = (feat_p['x'][:, i] -  self.edge_feature_mean[f])/self.edge_feature_std[f]
+        #
+        # children = g.successors(old_node).tolist()
+        # un_affected_children = [node_dict[n][mapping[n]] for n in program.P.successors(moved_op)]
+        # v = list(set(children) - set(un_affected_children))
+        # feat_c = {'x': torch.zeros((len(v), len(PlacementEnv.EDGE_FEATURES)), device=device),
+        #           'c': self.full_graph_full_edge_comm[program_id][network_id][[new_node] * len(v), v].to(device)}
+        # for i, f in enumerate(PlacementEnv.EDGE_FEATURES):
+        #     if f == 'bytes' or f == 'criticality':
+        #         for j, p in enumerate(v):
+        #             p_op = action_idx[p][0]
+        #             feat_c['x'][j, i] = program.P.edges[moved_op, p_op][f]
+        #     if f == 'comm_delay':
+        #         for j, p in enumerate(v):
+        #             p_dev = action_idx[p][1]
+        #             feat_c['x'][j, i] = network.comm_delay[new_dev, p_dev]
+        #     if f == 'comm_rate':
+        #         for j, p in enumerate(v):
+        #             p_dev = action_idx[p][1]
+        #             feat_c['x'][j, i] = network.comm_rate[new_dev, p_dev]
+        #     if f == 'comm_time':
+        #         feat_c['x'][:, i] = feat_c['c']
+        #
+        #     if f in self.edge_feature_mean:
+        #         feat_c['x'][:, i] = (feat_c['x'][:, i] - self.edge_feature_mean[f]) / self.edge_feature_std[f]
+        #
+        # g = dgl.remove_edges(g, g.edge_ids(u + [old_node] * len(v), [old_node] * len(u) + v))
+        #
+        # g.add_edges(torch.tensor(u, device=device, dtype=torch.int64), torch.tensor([new_node] * len(u), device=device, dtype=torch.int64), feat_p)
+        # g.add_edges(torch.tensor([new_node] * len(v), device=device, dtype=torch.int64), torch.tensor(v, device=device, dtype=torch.int64), feat_c)
+        #
+        #
+        # if 'criticality' in PlacementEnv.NODE_FEATURES and critical_path is not None:
+        #     idx = PlacementEnv.NODE_FEATURES.index('criticality')
+        #     indicator = torch.sum(self.full_graph_node_dev_action_matrix[program_id][network_id], dim=2).to(device)
+        #     c = torch.tensor([program.P.nodes[o]['criticality'] for o in range(program.n_operators)]).float().to(device)
+        #     c = torch.matmul(indicator , c)
+        #     g.ndata['x'][:, idx] =  c
+        #
+        # if 'start_time_potential' in PlacementEnv.NODE_FEATURES:
+        #     g.ndata['s'] = torch.randn(g.num_nodes(), device=device)
+        #     cur_p = [node_dict[n][mapping[n]] for n in range(program.n_operators)]
+        #     baseline = torch.tensor([np.mean(G_stats.nodes[n]['end_time']) for n in range(program.n_operators)]).float().to(device)
+        #     g.ndata['s'][cur_p] = baseline
+        #
+        #     g.update_all(dgl.function.u_add_e('s', 'c', 'm'),
+        #                  dgl.function.max('m', 'a'))
+        #     indicator = torch.sum(self.full_graph_node_dev_action_matrix[program_id][network_id], dim=2).to(device)
+        #     c = torch.matmul(indicator, baseline)
+        #     a = g.ndata['a']
+        #     idx = PlacementEnv.NODE_FEATURES.index('start_time_potential')
+        #     g.ndata['x'][:, idx] = c-a
 
         return g
 
@@ -567,10 +575,31 @@ class PlacementEnv:
             average_l = l
         return average_l
 
-    def simulate(self, program_id, network_id, mapping, noise=0, repeat=1):
+    def simulate(self, program_id, network_id, mapping, noise=0, repeat=1, ungrouped=None):
         program = self.programs[program_id]
         network = self.networks[network_id]
-        G, l, path = simulate(mapping, program, network, noise, repeat)
+        if ungrouped:
+            n_map = [0 for _ in range(ungrouped.n_operators)]
+            for n in program.P.nodes:
+                for cell in program.P.nodes[n]['group']:
+                    n_map[cell] = mapping[n]
+            p = ungrouped
+        else:
+            n_map = mapping
+            p = program
+
+        G, l, path = simulate(n_map, p, network, noise, repeat)
+        if ungrouped:
+            g = nx.DiGraph()
+            g.add_edges_from(program.P.edges)
+            for  n in g.nodes:
+                cluster = program.P.nodes[n]['group']
+                start_time = np.min([G.nodes[i]['start_time'] for i in cluster], axis=0)
+                end_time = np.max([G.nodes[i]['end_time'] for i in cluster], axis=0)
+                g.nodes[n]['start_time'] = start_time.tolist()
+                g.nodes[n]['end_time'] = end_time.tolist()
+                g.nodes[n]['comp_time'] = (end_time - start_time).tolist()
+            return l, None, g
         return l, path, G
 
 
