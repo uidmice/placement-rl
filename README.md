@@ -91,10 +91,10 @@ Example Commands:
 
 Train the model on default parameters:
 
-```python3 main.py --disable_cuda --disable_test --disable_eval```
+```python main.py --train```
 
 --disable_eval is optional depending on whether you prefer the model being generated faster versus it being evaluated
 
 Load an existing model from a run directory and run a specified amount of tests on it:
 
-``` python3 main.py --disable_cuda --num_testing_cases 100  --disable_eval --disable_train --run_folder /Users/YourUserName/path/placement-rl/runs/yyyy-mm-dd_hh-mm-ss_(prefix if you specified it)```
+``` python main.py --disable_cuda --num_testing_cases 100  --test --run_folder /Users/YourUserName/path/placement-rl/runs/yyyy-mm-dd_hh-mm-ss_(prefix if you specified it)```
