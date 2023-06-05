@@ -4,10 +4,9 @@
 
 This repo contains a learning approach called GiPH which learns policies for scheduling tasks to minimise latency accross clusters of devices that are dynamic where computational nodes can move in and out of range. ```main.py``` can be run to create, train, and evaluate a test a model using the GiPH method on generated network and task graphs as well as running it with existing approaches such as Placeto to compare its effectiveness against other baselines.
 
-[//]: # (# paper)
+# paper
 
-[//]: # ()
-[//]: # (link)
+https://arxiv.org/abs/2305.14562
 
 # Setup
 
