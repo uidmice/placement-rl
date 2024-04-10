@@ -304,8 +304,8 @@ class Experiment_on_data:
             self.exp_cfg.load_dir = exp_config.load_dir
             self.exp_cfg.policy_model=exp_config.policy_model
             self.exp_cfg.embedding_model=exp_config.embedding_model
-            self.agent.policy.load_state_dict(torch.load(os.path.join(self.logdir, exp_config.policy_model)))
-            self.agent.embedding.load_state_dict(torch.load(os.path.join(self.logdir, exp_config.embedding_model)))
+            self.agent.policy.load_state_dict(torch.load(os.path.join(self.logdir, exp_config.policy_model),map_location=self.device))
+            self.agent.embedding.load_state_dict(torch.load(os.path.join(self.logdir, exp_config.embedding_model),map_location=self.device))
 
         self.train_env = PlacementEnv(self.train_networks, self.train_programs, self.exp_cfg.memory_capacity)
         self.eval_env = PlacementEnv(self.eval_networks, self.eval_programs, self.exp_cfg.memory_capacity)
@@ -506,8 +506,8 @@ class Experiment_on_data:
         use_edge = self.exp_cfg.use_edge and not self.exp_cfg.use_graphsage
 
         for seed, program_id, network_id, i in zip(self.test_init_seeds, self.test_program_ids, self.test_network_ids, range(len(set))):
-            self.agent.policy.load_state_dict(torch.load(os.path.join(logdir, 'policy.pk')))
-            self.agent.embedding.load_state_dict(torch.load(os.path.join(logdir, 'embedding.pk')))
+            self.agent.policy.load_state_dict(torch.load(os.path.join(logdir, 'policy.pk'),map_location=self.device))
+            self.agent.embedding.load_state_dict(torch.load(os.path.join(logdir, 'embedding.pk'),map_location=self.device))
             print('===========================================================================')
             print(f"RUNNING {test_repeat} testing episodes for network {network_id}/program {program_id} ({i+1}/{len(set)}).")
             run_episodes(self.eval_env, self.agent,
