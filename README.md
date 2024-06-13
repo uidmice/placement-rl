@@ -8,6 +8,22 @@ This repo contains a learning approach called GiPH which learns policies for sch
 
 https://arxiv.org/abs/2305.14562
 
+To cite this work: 
+
+``` 
+@inproceedings{MLSYS2023_3e3eec95,
+ author = {Hu, Yi and Zhang, Chaoran and Andert, Edward and Singh, Harshul and Shrivastava, Aviral and Laudon, James and Zhou, Yanqi and Iannucci, Bob and Joe-Wong, Carlee},
+ booktitle = {Proceedings of Machine Learning and Systems},
+ editor = {D. Song and M. Carbin and T. Chen},
+ pages = {164--185},
+ publisher = {Curan},
+ title = {GiPH: Generalizable Placement Learning for Adaptive Heterogeneous Computing},
+ url = {https://proceedings.mlsys.org/paper_files/paper/2023/file/3e3eec95971350490e37a076fdc100ad-Paper-mlsys2023.pdf},
+ volume = {5},
+ year = {2023}
+}
+``` 
+
 # Setup
 
 This project is best run in a conda environment to satisfy version requirements, these are contained in requirements.txt and are as follows:
